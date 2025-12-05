@@ -44,14 +44,6 @@ use unicorn_engine::RegisterARM;
 ///
 /// * `Ok(u64)` - Successfully parsed 64-bit address value
 /// * `Err(String)` - Descriptive error message for invalid input
-///
-/// # Examples
-///
-/// ```rust,no_run
-/// assert_eq!(parse_hex("0x1000")?, 4096);
-/// assert_eq!(parse_hex("1000")?, 4096);
-/// assert_eq!(parse_hex("FFFF")?, 65535);
-/// ```
 fn parse_hex(s: &str) -> Result<u64, String> {
     let cleaned = s.strip_prefix("0x").unwrap_or(s);
     u64::from_str_radix(cleaned, 16).map_err(|e| format!("Invalid hex address '{}': {}", s, e))

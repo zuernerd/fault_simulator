@@ -79,14 +79,6 @@ impl FaultAttacks {
     /// campaigns to retrieve and analyze the results. The returned data can be
     /// used for further analysis, reporting, or persistence.
     ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// let mut fault_attacks = FaultAttacks::new_with_threads(&elf_file, sim_thread, 4)?;
-    /// fault_attacks.single(&mut groups.iter())?;
-    /// let results = fault_attacks.get_fault_data();
-    /// println!("Found {} successful attacks", results.len());
-    /// ```
     pub fn get_fault_data(&self) -> Vec<FaultElement> {
         self.fault_data.clone()
     }

@@ -30,7 +30,8 @@ pub use elf::abi::*;
 /// # Usage
 ///
 /// ```rust,no_run
-/// let elf_file = ElfFile::new(std::path::PathBuf::from("target.elf"))?;
+/// use fault_simulator::elf_file::ElfFile;
+/// let elf_file = ElfFile::new(std::path::PathBuf::from("target.elf")).unwrap();
 /// let debug_context = elf_file.get_debug_context();
 /// ```
 pub struct ElfFile {

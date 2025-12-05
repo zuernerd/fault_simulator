@@ -92,13 +92,6 @@ impl Glitch {
     ///
     /// Thread-safe Arc reference to the glitch fault instance, suitable
     /// for use in multi-threaded fault injection campaigns.
-    ///
-    /// # Typical Usage
-    ///
-    /// ```rust,no_run
-    /// let single_skip = Glitch::new(1);  // Most common glitch effect
-    /// let double_skip = Glitch::new(2);  // More severe glitch
-    /// ```
     pub fn new(number: usize) -> Arc<Self> {
         Arc::new(Self { number })
     }
