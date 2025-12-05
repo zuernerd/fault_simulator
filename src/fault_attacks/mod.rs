@@ -61,18 +61,34 @@ impl FaultAttacks {
         })
     }
 
-    /// Sets the fault data collection for the `FaultAttacks` instance.
+    /// Retrieves a copy of all collected fault injection results.
     ///
-    /// This method replaces the current fault data with the provided collection
-    /// of successful attack results. Each outer vector represents a different
-    /// successful attack scenario, while the inner vector contains the fault
-    /// data records for that specific attack.
+    /// This method returns a clone of the internal fault data collection,
+    /// containing all successful fault injection attacks discovered during
+    /// simulation runs. Each element represents a successful attack scenario
+    /// with complete fault injection details and execution context.
     ///
-    /// # Arguments
+    /// # Returns
     ///
-    /// * `fault_data` - Collection of successful fault injection results to store.
-    pub fn set_fault_data(&mut self, fault_data: Vec<FaultElement>) {
-        self.fault_data = fault_data;
+    /// * `Vec<FaultElement>` - Collection of successful fault injection results.
+    ///   Returns an empty vector if no successful attacks have been found yet.
+    ///
+    /// # Usage
+    ///
+    /// Typically called after running `single()` or `double()` fault injection
+    /// campaigns to retrieve and analyze the results. The returned data can be
+    /// used for further analysis, reporting, or persistence.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// let mut fault_attacks = FaultAttacks::new_with_threads(&elf_file, sim_thread, 4)?;
+    /// fault_attacks.single(&mut groups.iter())?;
+    /// let results = fault_attacks.get_fault_data();
+    /// println!("Found {} successful attacks", results.len());
+    /// ```
+    pub fn get_fault_data(&self) -> Vec<FaultElement> {
+        self.fault_data.clone()
     }
 
     /// Initializes dedicated fault attack worker threads.
@@ -169,6 +185,7 @@ impl FaultAttacks {
     /// # Arguments
     ///
     /// * `groups` - Iterator over fault group names (e.g., "glitch", "regbf", "regfld").
+    /// * `run_through` - Continue simulation after finding successful attacks (don't stop early).
     ///
     /// # Returns
     ///
@@ -182,8 +199,12 @@ impl FaultAttacks {
     /// - Sets initial program trace before starting attacks
     /// - Tests each fault type individually
     /// - Accumulates successful attacks in `self.fault_data`
-    /// - Respects `config.run_through` flag for early termination
-    pub fn single(&mut self, groups: &mut Iter<String>) -> Result<(bool, usize), String> {
+    /// - Respects `run_through` flag for early termination
+    pub fn single(
+        &mut self,
+        groups: &mut Iter<String>,
+        run_through: bool,
+    ) -> Result<(bool, usize), String> {
         let lists = get_fault_lists(groups); // Get all faults of all lists
         let mut any_success = false; // Track if any fault was successful
 
@@ -196,7 +217,8 @@ impl FaultAttacks {
                 // Run simulation with fault using threaded version if available
                 any_success |= self.fault_simulation(std::slice::from_ref(&fault))?;
 
-                if any_success && !self.user_thread.config.run_through {
+                if any_success && !run_through {
+                    println!("Early stopping single fault injection due to successful attack.");
                     return Ok((true, self.count_sum));
                 }
             }
@@ -213,6 +235,7 @@ impl FaultAttacks {
     /// # Arguments
     ///
     /// * `groups` - Iterator over fault group names to generate pairs from.
+    /// * `run_through` - Continue simulation after finding successful attacks (don't stop early).
     ///
     /// # Returns
     ///
@@ -225,7 +248,11 @@ impl FaultAttacks {
     ///
     /// The number of attacks grows quadratically with the fault list size.
     /// For a list of N faults, this will test N² combinations.
-    pub fn double(&mut self, groups: &mut Iter<String>) -> Result<(bool, usize), String> {
+    pub fn double(
+        &mut self,
+        groups: &mut Iter<String>,
+        run_through: bool,
+    ) -> Result<(bool, usize), String> {
         let lists = get_fault_lists(groups); // Get all faults of all lists
         let mut any_success = false; // Track if any fault was successful
 
@@ -245,7 +272,8 @@ impl FaultAttacks {
             for chunks in iter_list.chunks(self.number_of_threads.unwrap_or(1)) {
                 any_success |= self.fault_simulation(chunks)?;
 
-                if any_success && !self.user_thread.config.run_through {
+                if any_success && !run_through {
+                    println!("Early stopping double fault injection due to successful attack.");
                     return Ok((true, self.count_sum));
                 }
             }
@@ -296,7 +324,7 @@ impl FaultAttacks {
                 .result_receiver
                 .as_ref()
                 .unwrap()
-                .recv_timeout(Duration::from_millis(1000))
+                .recv_timeout(Duration::from_millis(5000))
             {
                 Ok((data, n)) => {
                     self.count_sum += n;

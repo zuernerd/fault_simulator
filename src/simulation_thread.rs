@@ -62,8 +62,6 @@ pub struct SimulationConfig {
     pub cycles: usize,
     /// Enable detailed analysis of loops and repeated code patterns.
     pub deep_analysis: bool,
-    /// Continue simulation after finding successful attacks (don't stop early).
-    pub run_through: bool,
     /// Memory addresses that indicate successful attack when accessed.
     pub success_addresses: Vec<u64>,
     /// Memory addresses that indicate attack failure when accessed.
@@ -86,7 +84,6 @@ impl SimulationConfig {
     pub fn new(
         cycles: usize,
         deep_analysis: bool,
-        run_through: bool,
         success_addresses: Vec<u64>,
         failure_addresses: Vec<u64>,
         initial_registers: std::collections::HashMap<unicorn_engine::RegisterARM, u64>,
@@ -94,7 +91,6 @@ impl SimulationConfig {
         Self {
             cycles,
             deep_analysis,
-            run_through,
             success_addresses,
             failure_addresses,
             initial_registers,
@@ -282,7 +278,6 @@ impl SimulationThread {
     ///
     /// * `cycles` - Maximum number of CPU cycles/instructions to execute per simulation.
     /// * `deep_analysis` - Enable detailed analysis of loops and repeated code patterns.
-    /// * `run_through` - Continue simulation after finding successful attacks (don't stop early).
     /// * `success_addresses` - Memory addresses that indicate successful attack when accessed.
     /// * `failure_addresses` - Memory addresses that indicate attack failure when accessed.
     /// * `initial_registers` - Initial CPU register values to set before each simulation.
@@ -294,7 +289,6 @@ impl SimulationThread {
     pub fn with_params(
         cycles: usize,
         deep_analysis: bool,
-        run_through: bool,
         success_addresses: Vec<u64>,
         failure_addresses: Vec<u64>,
         initial_registers: std::collections::HashMap<unicorn_engine::RegisterARM, u64>,
@@ -302,7 +296,6 @@ impl SimulationThread {
         let config = SimulationConfig::new(
             cycles,
             deep_analysis,
-            run_through,
             success_addresses,
             failure_addresses,
             initial_registers,

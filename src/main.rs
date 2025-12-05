@@ -127,7 +127,6 @@ fn main() -> Result<(), String> {
     let sim_config = SimulationConfig::new(
         config.max_instructions,
         config.deep_analysis,
-        config.run_through,
         config.success_addresses,
         config.failure_addresses,
         config.initial_registers,
@@ -162,15 +161,15 @@ fn main() -> Result<(), String> {
         let mut class = config.class.iter();
         match class.next().as_ref().map(|s| s.as_str()) {
             Some("all") | None => {
-                if !attack_sim.single(&mut class)?.0 {
-                    attack_sim.double(&mut class)?;
+                if !attack_sim.single(&mut class, config.run_through)?.0 {
+                    attack_sim.double(&mut class, config.run_through)?;
                 }
             }
             Some("single") => {
-                attack_sim.single(&mut class)?;
+                attack_sim.single(&mut class, config.run_through)?;
             }
             Some("double") => {
-                attack_sim.double(&mut class)?;
+                attack_sim.double(&mut class, config.run_through)?;
             }
             _ => println!("Unknown attack class!"),
         }
