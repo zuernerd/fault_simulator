@@ -160,6 +160,7 @@ fn main() -> Result<(), SimulatorError> {
         config.initial_registers,
         config.memory_regions,
         config.log_level.clone(),
+        config.result_checks,
     );
     // Create user thread for simulation
     let user_thread = Arc::new(SimulationThread::new_with_threads(

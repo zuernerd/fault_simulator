@@ -23,6 +23,7 @@ fn criterion_benchmark(c: &mut Criterion) {
                 std::collections::HashMap::new(), // initial_registers
                 vec![],                           // memory_regions
                 "info".to_string(),               // log_level
+                None,                             // result_checks
             ),
             &file_data,
             cpu_cores,
