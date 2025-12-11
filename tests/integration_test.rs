@@ -31,6 +31,7 @@ fn run_single_glitch() {
                 std::collections::HashMap::new(),
                 vec![],
                 "info".to_string(),
+                None,
             ),
             &file_data,
             cpu_cores,
@@ -55,6 +56,7 @@ fn run_single_glitch() {
                 std::collections::HashMap::new(),
                 vec![],
                 "info".to_string(),
+                None,
             ),
             &file_data,
             cpu_cores,
@@ -82,6 +84,7 @@ fn run_single_glitch() {
                 std::collections::HashMap::new(),
                 vec![],
                 "info".to_string(),
+                None,
             ),
             &file_data,
             cpu_cores,
@@ -117,6 +120,7 @@ fn run_double_glitch() {
                 std::collections::HashMap::new(), // initial_registers
                 vec![],
                 "info".to_string(),
+                None,
             ),
             &file_data,
             fixed_threads,
@@ -158,6 +162,7 @@ fn run_fault_simulation_one_glitch() {
                 std::collections::HashMap::new(), // initial_registers
                 vec![],
                 "info".to_string(),
+                None,
             ),
             &file_data,
             cpu_cores,
@@ -265,6 +270,7 @@ fn test_success_and_failure_addresses() {
                 std::collections::HashMap::new(), // initial_registers
                 vec![],
                 "info".to_string(),
+                None,
             ),
             &file_data,
             cpu_cores,
@@ -343,6 +349,7 @@ fn test_initial_register_context() {
                 initial_registers,
                 vec![],
                 "info".to_string(),
+                None,
             ),
             &file_data,
             cpu_cores,
@@ -462,5 +469,92 @@ fn test_code_victim_5_full_run() {
     // Should run without Unicorn error and execute all tests (711064 total iterations)
     cmd.assert()
         .stdout(predicate::str::contains("Overall tests executed 711064"))
+        .success();
+}
+
+#[test]
+/// Test for result_checks functionality
+///
+/// This test verifies the new result_checks mechanism that checks both address
+/// and register values. It uses victim_3.elf and defines checkpoints where specific
+/// register values determine success or failure.
+fn test_result_checks() {
+    use unicorn_engine::RegisterARM;
+
+    let cpu_cores = get_cpu_cores();
+
+    // Create result checks configuration
+    let success_check = RegisterCheck {
+        address: 0x08000490,
+        expected_registers: {
+            let mut map = std::collections::HashMap::new();
+            map.insert(RegisterARM::R0, 0x00000000);
+            map
+        },
+    };
+
+    let failure_check_1 = RegisterCheck {
+        address: 0x08000490,
+        expected_registers: {
+            let mut map = std::collections::HashMap::new();
+            map.insert(RegisterARM::R0, 0x00000001);
+            map
+        },
+    };
+
+    let result_checks = ResultChecks {
+        success_checks: vec![success_check],
+        failure_checks: vec![failure_check_1],
+    };
+
+    let file_data: ElfFile =
+        ElfFile::new(std::path::PathBuf::from("tests/bin/victim_3.elf")).unwrap();
+
+    let sim_config = SimulationConfig::new(
+        2000,
+        false,
+        vec![],
+        vec![],
+        std::collections::HashMap::new(),
+        vec![],
+        "off".to_string(),
+        Some(result_checks),
+    );
+
+    let user_thread = std::sync::Arc::new(
+        SimulationThread::new_with_threads(sim_config, &file_data, cpu_cores).unwrap(),
+    );
+    let mut attack = FaultAttacks::new_with_threads(&file_data, user_thread, cpu_cores).unwrap();
+
+    // Test single glitch attack with result_checks
+    let vec = ["glitch".to_string()];
+    let single_result = attack.single(&vec, false).unwrap();
+
+    assert!(
+        single_result.1 > 0,
+        "Expected some attack iterations with result_checks"
+    );
+}
+
+#[test]
+/// Integration test for result_checks from JSON5 config
+///
+/// This test verifies that result_checks can be loaded from a JSON5 config file
+/// and used in simulation.
+fn test_result_checks_json_config() {
+    let mut cmd = Command::cargo_bin("fault_simulator").unwrap();
+
+    cmd.args([
+        "--config",
+        "tests/test_config_result_checks.json5",
+        "--no-check",
+        "--max-instructions",
+        "100",
+    ]);
+
+    cmd.assert()
+        .stderr(predicate::str::contains(
+            "Using register-based success/failure checking",
+        ))
         .success();
 }
