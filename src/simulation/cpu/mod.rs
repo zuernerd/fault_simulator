@@ -32,7 +32,7 @@ use callback::{
 };
 
 use unicorn_engine::unicorn_const::uc_error;
-use unicorn_engine::unicorn_const::{Arch, HookType, Mode, Prot, SECOND_SCALE};
+use unicorn_engine::unicorn_const::{Arch, HookType, Mode, Prot};
 use unicorn_engine::{Context, RegisterARM, Unicorn};
 
 use log::debug;
@@ -105,6 +105,8 @@ pub enum RunState {
 pub struct Cpu<'a> {
     emu: Unicorn<'a, CpuState<'a>>,
     program_counter: u64,
+    /// Saved CPU context for potential state save/restore operations.
+    #[allow(dead_code)]
     cpu_context: Context,
     initial_registers: HashMap<RegisterARM, u64>,
 }
@@ -362,7 +364,7 @@ impl<'a> Cpu<'a> {
             ret_val = self.emu.emu_start(
                 self.program_counter | 1,
                 end_address | 1,
-                SECOND_SCALE,
+                0, // No wall-clock timeout; rely on cycle count only
                 cycles,
             );
         }
@@ -441,22 +443,20 @@ impl<'a> Cpu<'a> {
         self.emu.get_data_mut().fault_data.clear();
     }
 
-    /// Clear trace data in internal structure
-    pub fn clear_trace_data(&mut self) {
-        // Remove hooks from list
-        self.emu.get_data_mut().trace_data.clear();
+    /// Execute fault injection according to fault type
+    /// Program is stopped and will be continued after fault injection
+    pub fn execute_fault_injection(&mut self, fault: &FaultRecord) -> bool {
+        fault.fault_type.execute(self, fault)
     }
-
-    /// Initialize the CPUState
-    ///
     pub fn init_cpu_state(&mut self) {
-        self.emu.get_data_mut().state = RunState::Init;
-        self.emu.get_data_mut().start_trace = false;
-        self.emu.get_data_mut().with_register_data = false;
-        self.emu.get_data_mut().negative_run = false;
-        self.emu.get_data_mut().deactivate_print = false;
-        self.emu.get_data_mut().trace_data.clear();
-        self.emu.get_data_mut().fault_data.clear();
+        let state = self.emu.get_data_mut();
+        state.state = RunState::Init;
+        state.start_trace = false;
+        state.with_register_data = false;
+        state.negative_run = false;
+        state.deactivate_print = false;
+        state.trace_data.clear();
+        state.fault_data.clear();
     }
 
     /// Copy trace data to caller
@@ -469,12 +469,6 @@ impl<'a> Cpu<'a> {
         let trace_data = &mut self.emu.get_data_mut().trace_data;
         let mut seen = HashSet::new();
         trace_data.retain(|trace| seen.insert(trace.clone()));
-    }
-
-    /// Execute fault injection according to fault type
-    /// Program is stopped and will be continued after fault injection
-    pub fn execute_fault_injection(&mut self, fault: &FaultRecord) -> bool {
-        fault.fault_type.execute(self, fault)
     }
 
     /// Get Program counter from internal variable
@@ -523,31 +517,12 @@ impl<'a> Cpu<'a> {
     }
 
     /// Write assembler instruction to memory. After modification the simulation cache is cleared for
-    /// the changed command to ensure written cmds are immidiately active
-    ///
+    /// the changed command to ensure written cmds are immediately active
     pub fn asm_cmd_write(&mut self, address: u64, instruction: &[u8]) -> Result<(), uc_error> {
         // Write assembler instruction to memory
         self.memory_write(address, instruction).unwrap();
         // Clear cached instruction
         self.emu
             .ctl_remove_cache(address, address + instruction.len() as u64)
-    }
-
-    /// Save the current state of the CPU.
-    pub fn save_state(&mut self) -> Result<(), uc_error> {
-        // Save current state of the CPU
-        self.emu
-            .context_save(&mut self.cpu_context)
-            .expect("failed to save context");
-        Ok(())
-    }
-
-    /// Restore the CPU state from a saved context.
-    pub fn restore_state(&mut self) -> Result<(), uc_error> {
-        // Restore CPU state
-        self.emu
-            .context_restore(&self.cpu_context)
-            .expect("failed to restore context");
-        Ok(())
     }
 }

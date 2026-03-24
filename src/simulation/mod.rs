@@ -114,7 +114,6 @@ impl<'a> Control<'a> {
     /// * `success_addresses` - List of memory addresses that indicate success when executed.
     /// * `failure_addresses` - List of memory addresses that indicate failure when executed.
     /// * `initial_registers` - HashMap of RegisterARM to initial values for CPU registers.
-    /// * `memory_regions` - Array of memory region configurations for the simulation.
     ///
     /// # Returns
     ///

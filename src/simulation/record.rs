@@ -134,3 +134,101 @@ impl TraceRecord {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    #[test]
+    fn instruction_records_equal_by_address() {
+        let rec1 = TraceRecord::Instruction {
+            address: 0x1000,
+            index: 0,
+            asm_instruction: vec![0x00, 0xBF],
+            registers: None,
+        };
+        let rec2 = TraceRecord::Instruction {
+            address: 0x1000,
+            index: 5,
+            asm_instruction: vec![0xFF],
+            registers: Some([0; 17]),
+        };
+        assert_eq!(rec1, rec2);
+    }
+
+    #[test]
+    fn instruction_records_not_equal_different_address() {
+        let rec1 = TraceRecord::Instruction {
+            address: 0x1000,
+            index: 0,
+            asm_instruction: vec![],
+            registers: None,
+        };
+        let rec2 = TraceRecord::Instruction {
+            address: 0x2000,
+            index: 0,
+            asm_instruction: vec![],
+            registers: None,
+        };
+        assert_ne!(rec1, rec2);
+    }
+
+    #[test]
+    fn fault_records_not_equal() {
+        let rec1 = TraceRecord::Fault {
+            address: 0x1000,
+            fault_type: "glitch".to_string(),
+            data: vec![],
+        };
+        let rec2 = TraceRecord::Instruction {
+            address: 0x1000,
+            index: 0,
+            asm_instruction: vec![],
+            registers: None,
+        };
+        // Fault and Instruction are never equal
+        assert_ne!(rec1, rec2);
+    }
+
+    #[test]
+    fn hash_deduplicates_by_address() {
+        let rec1 = TraceRecord::Instruction {
+            address: 0x1000,
+            index: 0,
+            asm_instruction: vec![0x00],
+            registers: None,
+        };
+        let rec2 = TraceRecord::Instruction {
+            address: 0x1000,
+            index: 1,
+            asm_instruction: vec![0xFF],
+            registers: None,
+        };
+        let mut set = HashSet::new();
+        set.insert(rec1);
+        set.insert(rec2);
+        assert_eq!(set.len(), 1);
+    }
+
+    #[test]
+    fn address_method_instruction() {
+        let rec = TraceRecord::Instruction {
+            address: 0xABCD,
+            index: 0,
+            asm_instruction: vec![],
+            registers: None,
+        };
+        assert_eq!(rec.address(), 0xABCD);
+    }
+
+    #[test]
+    fn address_method_fault() {
+        let rec = TraceRecord::Fault {
+            address: 0x1234,
+            fault_type: "test".to_string(),
+            data: vec![],
+        };
+        assert_eq!(rec.address(), 0x1234);
+    }
+}

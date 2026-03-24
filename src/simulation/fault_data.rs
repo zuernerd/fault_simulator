@@ -101,3 +101,59 @@ impl FaultData {
         fault_data.iter().map(|data| data.fault.clone()).collect()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::fault_attacks::faults::get_fault_from;
+
+    fn make_fault_data(addr: u64) -> FaultData {
+        FaultData::new(
+            vec![0x00, 0xBF],
+            vec![0xFF, 0xFF],
+            TraceRecord::Instruction {
+                address: addr,
+                index: 0,
+                asm_instruction: vec![0x00, 0xBF],
+                registers: None,
+            },
+            FaultRecord {
+                index: 0,
+                fault_type: get_fault_from("glitch_1").unwrap(),
+            },
+        )
+    }
+
+    #[test]
+    fn new_stores_fields() {
+        let fd = make_fault_data(0x1000);
+        assert_eq!(fd.original_instruction, vec![0x00, 0xBF]);
+        assert_eq!(fd.modified_instruction, vec![0xFF, 0xFF]);
+        assert_eq!(fd.fault.index, 0);
+    }
+
+    #[test]
+    fn get_simulation_fault_records_empty() {
+        let records = FaultData::get_simulation_fault_records(&[]);
+        assert!(records.is_empty());
+    }
+
+    #[test]
+    fn get_simulation_fault_records_multiple() {
+        let data = vec![
+            make_fault_data(0x100),
+            make_fault_data(0x200),
+            make_fault_data(0x300),
+        ];
+        let records = FaultData::get_simulation_fault_records(&data);
+        assert_eq!(records.len(), 3);
+    }
+
+    #[test]
+    fn clone_preserves_data() {
+        let fd = make_fault_data(0x4000);
+        let cloned = fd.clone();
+        assert_eq!(fd.original_instruction, cloned.original_instruction);
+        assert_eq!(fd.fault.index, cloned.fault.index);
+    }
+}

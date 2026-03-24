@@ -113,7 +113,7 @@ impl FaultFunctions for CmdBitFlip {
     /// # Returns
     ///
     /// * `Option<FaultType>` - Returns the fault type if successful, otherwise `None`.
-    fn try_from(&self, input: &str) -> Option<FaultType> {
+    fn parse(&self, input: &str) -> Option<FaultType> {
         // divide name from attribute
         let collect: Vec<&str> = input.split('_').collect();
         // check if name and attribute are present

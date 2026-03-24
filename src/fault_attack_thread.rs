@@ -67,6 +67,8 @@ pub struct FaultAttackThread {
     /// Worker threads use this to report successful fault injection results
     /// back to the main analysis thread for aggregation and reporting.
     result_sender: Sender<(Vec<FaultElement>, usize)>,
+    /// Channel receiver for collecting successful attack results from workers.
+    result_receiver: Receiver<(Vec<FaultElement>, usize)>,
     /// Thread handles for spawned worker processes.
     ///
     /// Maintained for proper cleanup during drop, ensuring all worker threads
@@ -75,15 +77,11 @@ pub struct FaultAttackThread {
 }
 
 impl FaultAttackThread {
-    /// Creates a new FaultAttackThread instance with a result channel.
+    /// Creates a new FaultAttackThread instance.
     ///
     /// This constructor initializes the communication channels and synchronization
     /// primitives needed for coordinating fault attacks across multiple worker threads.
     /// No worker threads are spawned at this stage.
-    ///
-    /// # Arguments
-    ///
-    /// * `result_sender` - Channel for sending fault attack results back to the coordinator.
     ///
     /// # Returns
     ///
@@ -94,17 +92,21 @@ impl FaultAttackThread {
     ///
     /// After creation, call `start_worker_threads()` to spawn the worker thread pool
     /// and begin accepting fault attack workloads.
-    pub fn new(result_sender: Sender<(Vec<FaultElement>, usize)>) -> Result<Self, String> {
+    pub fn new() -> Result<Self, String> {
         // Create a channel for sending fault attack workloads to threads
         let (workload_sender, workload_receiver): (
             Sender<FaultAttackWorkload>,
             Receiver<FaultAttackWorkload>,
         ) = unbounded();
 
+        // Create a channel for collecting results from worker threads
+        let (result_sender, result_receiver) = unbounded();
+
         Ok(FaultAttackThread {
             workload_sender: Some(workload_sender),
             workload_receiver,
             result_sender,
+            result_receiver,
             handles: None,
         })
     }
@@ -158,7 +160,7 @@ impl FaultAttackThread {
 
             // Spawn worker thread
             let handle = spawn(move || {
-                // Setup dissassembly engine
+                // Setup disassembly engine
                 let cs = Disassembly::new();
 
                 // Loop until the workload receiver is closed
@@ -166,16 +168,20 @@ impl FaultAttackThread {
                     let FaultAttackWorkload { fault_sequence } = msg;
 
                     // Execute fault simulation for the given fault sequence
-                    // TODO: Handle error properly
-                    let (result, n) = fault_simulation(
+                    match fault_simulation(
                         &fault_sequence,
                         initial_trace.clone(),
                         &cs,
                         Arc::clone(&user_thread),
-                    )
-                    .unwrap();
-
-                    result_sender.send((result, n)).unwrap();
+                    ) {
+                        Ok((result, n)) => {
+                            let _ = result_sender.send((result, n));
+                        }
+                        Err(e) => {
+                            eprintln!("Fault simulation error: {}", e);
+                            let _ = result_sender.send((vec![], 0));
+                        }
+                    }
                 }
             });
 
@@ -211,6 +217,55 @@ impl FaultAttackThread {
             Err("Fault attack workload sender channel is closed".to_string())
         }
     }
+
+    /// Sends a batch of fault sequences to workers and collects all results.
+    ///
+    /// This method distributes fault attack workloads to the worker thread pool
+    /// and waits for all results to be returned, with a timeout per result.
+    ///
+    /// # Arguments
+    ///
+    /// * `chunks` - Slice of fault sequences to execute in parallel.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok((data, count))` - Successful attack results and total execution count.
+    /// * `Err(String)` - Error if sending fails or a result times out.
+    pub fn run_batch(
+        &self,
+        chunks: &[Vec<FaultType>],
+    ) -> Result<(Vec<FaultElement>, usize), String> {
+        let mut n_workload = 0;
+        for faults in chunks {
+            self.send_fault_attack_workload(faults)?;
+            n_workload += 1;
+        }
+
+        let mut all_data = Vec::new();
+        let mut total_count = 0;
+
+        for _ in 0..n_workload {
+            match self
+                .result_receiver
+                .recv_timeout(Duration::from_millis(5000))
+            {
+                Ok((data, n)) => {
+                    total_count += n;
+                    if !data.is_empty() {
+                        all_data.extend(data);
+                    }
+                }
+                Err(RecvTimeoutError::Timeout) => {
+                    return Err("Timeout while receiving fault attack results".to_string());
+                }
+                Err(RecvTimeoutError::Disconnected) => {
+                    return Err("Fault attack result channel disconnected".to_string());
+                }
+            }
+        }
+
+        Ok((all_data, total_count))
+    }
 }
 
 impl Drop for FaultAttackThread {
@@ -236,7 +291,7 @@ impl Drop for FaultAttackThread {
 /// # Arguments
 ///
 /// * `faults` - Ordered sequence of faults to inject during execution.
-/// * `initial_trace` - Mutable reference to the initial trace data that will be populated if empty.
+/// * `initial_trace` - Initial trace data that serves as the starting point for fault injection.
 /// * `cs` - Reference to the disassembly engine for filtering records.
 /// * `user_thread` - Reference to the user thread for workload management.
 ///
@@ -312,7 +367,7 @@ fn fault_simulation(
     let mut data = Vec::new();
     // Collect results from worker threads
     for _ in 0..n {
-        match fault_response_receiver.recv_timeout(Duration::from_millis(1000)) {
+        match fault_response_receiver.recv_timeout(Duration::from_millis(10000)) {
             Ok(faults) => {
                 if !faults.is_empty() {
                     data.push(faults);
@@ -378,20 +433,11 @@ fn fault_simulation_inner(
         n += 1;
     } else {
         // Collect trace records with simulation fault records to get new running length (time)
-        // Setup the trace response channel
-        let (trace_response_sender, trace_response_receiver) = unbounded();
-        // Run simulation to record normal fault program flow as a base for fault injection
-        user_thread.send_workload(
+        let mut records = user_thread.get_trace(
             RunType::RecordTrace,
             user_thread.config.deep_analysis,
             simulation_fault_records.to_vec(),
-            Some(trace_response_sender),
-            None,
         )?;
-
-        let mut records = trace_response_receiver
-            .recv()
-            .expect("Unable to receive trace data");
 
         // Split faults into first and remaining faults
         let (first_fault, remaining_faults) = remaining_faults.split_first().unwrap();
@@ -439,21 +485,9 @@ fn fault_simulation_inner(
 /// * `Ok(TraceElement)` - Initial execution trace records without faults.
 /// * `Err(String)` - Error message if trace recording fails or times out.
 fn get_initial_trace_data(user_thread: Arc<SimulationThread>) -> Result<TraceElement, String> {
-    // Collect trace records with simulation fault records to get new running length (time)
-    // Setup the trace response channel
-    let (trace_response_sender, trace_response_receiver) = unbounded();
-    // Run simulation to record normal fault program flow as a base for fault injection
-    user_thread.send_workload(
+    user_thread.get_trace(
         RunType::RecordTrace,
         user_thread.config.deep_analysis,
         vec![],
-        Some(trace_response_sender),
-        None,
-    )?;
-
-    let records = trace_response_receiver
-        .recv()
-        .expect("Unable to receive trace data");
-
-    Ok(records)
+    )
 }

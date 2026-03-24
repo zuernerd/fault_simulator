@@ -95,20 +95,17 @@ fn main() -> Result<(), String> {
     };
 
     // Check for compilation flag and provided elf file
-    let path = match config.elf.is_some() {
-        false => {
+    let path = match config.elf {
+        None => {
             // Compilation according cli parameter
             if !config.no_compilation {
                 compile::compile();
             }
             std::path::PathBuf::from("content/bin/aarch32/victim.elf")
         }
-        true => {
-            println!(
-                "Provided elf file: {}\n",
-                &config.elf.as_ref().unwrap().display()
-            );
-            config.elf.unwrap()
+        Some(elf_path) => {
+            println!("Provided elf file: {}\n", elf_path.display());
+            elf_path
         }
     };
 
@@ -158,18 +155,19 @@ fn main() -> Result<(), String> {
 
     // Run attack simulation
     if config.faults.is_empty() {
-        let mut class = config.class.iter();
-        match class.next().as_ref().map(|s| s.as_str()) {
+        let class = config.class.clone();
+        let subclass = if class.len() > 1 { &class[1..] } else { &[] };
+        match class.first().map(|s| s.as_str()) {
             Some("all") | None => {
-                if !attack_sim.single(&mut class, config.run_through)?.0 {
-                    attack_sim.double(&mut class, config.run_through)?;
+                if !attack_sim.single(subclass, config.run_through)?.0 {
+                    attack_sim.double(subclass, config.run_through)?;
                 }
             }
             Some("single") => {
-                attack_sim.single(&mut class, config.run_through)?;
+                attack_sim.single(subclass, config.run_through)?;
             }
             Some("double") => {
-                attack_sim.double(&mut class, config.run_through)?;
+                attack_sim.double(subclass, config.run_through)?;
             }
             _ => println!("Unknown attack class!"),
         }
@@ -205,7 +203,7 @@ fn main() -> Result<(), String> {
                 stdout().flush().unwrap();
                 let mut buffer = String::new();
                 if io::stdin().read_line(&mut buffer).is_ok() {
-                    if let Ok(number) = buffer.trim().parse::<isize>() {
+                    if let Ok(number) = buffer.trim().parse::<usize>() {
                         attack_sim.print_trace_for_fault(number)?;
                         continue;
                     }

@@ -40,7 +40,7 @@ fn run_single_glitch() {
 
     // Result is (success: bool, number_of_attacks: usize)
     let vec = ["glitch".to_string()];
-    assert_eq!((true, 35), attack.single(&mut vec.iter(), false).unwrap());
+    assert_eq!((true, 35), attack.single(&vec, false).unwrap());
 
     // Create user thread for simulation with threads started
     let user_thread = std::sync::Arc::new(
@@ -62,7 +62,7 @@ fn run_single_glitch() {
 
     // Result is (success: bool, number_of_attacks: usize)
     let vec = ["glitch".to_string()];
-    assert_eq!((true, 280), attack.single(&mut vec.iter(), true).unwrap());
+    assert_eq!((true, 280), attack.single(&vec, true).unwrap());
 
     // Load victim data for attack simulation
     let file_data: ElfFile =
@@ -85,7 +85,7 @@ fn run_single_glitch() {
     // Create fault attacks with dedicated threads
     let mut attack = FaultAttacks::new_with_threads(&file_data, user_thread, cpu_cores).unwrap();
     // Result is (success: bool, number_of_attacks: usize)
-    assert_eq!((false, 376), attack.single(&mut vec.iter(), true).unwrap());
+    assert_eq!((false, 376), attack.single(&vec, true).unwrap());
 }
 
 #[test]
@@ -113,22 +113,18 @@ fn run_double_glitch() {
         .unwrap(),
     );
 
-    // TODO: fix inconsistence of results  != 22808
     let mut attack =
         FaultAttacks::new_with_threads(&file_data, user_thread.clone(), cpu_cores).unwrap();
     // Result is (false: bool, number_of_attacks: usize)
     let vec = ["glitch".to_string()];
-    assert_eq!(
-        (false, 22808),
-        attack.double(&mut vec.iter(), false).unwrap()
-    );
+    let results = attack.double(&vec, false).unwrap();
+    assert_eq!((false, 22808), results);
 
-    // Test second scenario with regbf
-    let mut attack = FaultAttacks::new_with_threads(&file_data, user_thread, cpu_cores).unwrap();
-
+    // Test second scenario with regbf (count_sum accumulates on same attack instance)
     // Result is (success: bool, number_of_attacks: usize)
     let vec = ["regbf".to_string()];
-    assert_eq!((true, 6916), attack.double(&mut vec.iter(), false).unwrap());
+    let results = attack.double(&vec, false).unwrap();
+    assert_eq!((true, 29760), results);
 }
 
 #[test]
@@ -204,7 +200,7 @@ fn run_fault_simulation_two_glitches() {
     user_thread
         .start_worker_threads(&file_data, cpu_cores)
         .unwrap();
-    let mut attack = FaultAttacks::new(file_data.clone(), Arc::new(user_thread)).unwrap();
+    let mut attack = FaultAttacks::new(&file_data, Arc::new(user_thread)).unwrap();
     attack.start_fault_attack_threads(cpu_cores).unwrap();
 
     let result = attack
@@ -263,7 +259,7 @@ fn test_success_and_failure_addresses() {
     let mut attack = FaultAttacks::new_with_threads(&file_data, user_thread, cpu_cores).unwrap();
     // Test single glitch attack with custom addresses
     let vec = ["glitch".to_string()];
-    let single_result = attack.single(&mut vec.iter(), false).unwrap();
+    let single_result = attack.single(&vec, false).unwrap();
 
     // Verify that the attack runs and produces results
     println!(

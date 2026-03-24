@@ -38,6 +38,9 @@ use itertools::Itertools;
 pub use register_bitflip::RegisterBitFlip;
 pub use register_flood::RegisterFlood;
 
+// Note: example.rs is intentionally excluded — it is a template file,
+// not a registered fault type.
+
 use unicorn_engine::RegisterARM;
 
 /// Default fault instances for enumeration and testing.
@@ -132,7 +135,7 @@ pub trait FaultFunctions: Send + Sync + Debug {
     ///
     /// * Glitch: "glitch_2" (skip 2 instructions)
     /// * Register: "regbf_r1_0x100" (flip bits in R1 with mask 0x100)
-    fn try_from(&self, input: &str) -> Option<FaultType>;
+    fn parse(&self, input: &str) -> Option<FaultType>;
 
     /// Enumerates all possible variations of this fault type.
     ///
@@ -143,7 +146,7 @@ pub trait FaultFunctions: Send + Sync + Debug {
     /// # Returns
     ///
     /// Vector of strings, each representing a valid fault specification
-    /// that can be parsed by `try_from()`. Should cover all practically
+    /// that can be parsed by `parse()`. Should cover all practically
     /// useful parameter combinations without being exhaustive.
     ///
     /// # Usage
@@ -178,7 +181,7 @@ pub type FaultType = Arc<dyn FaultFunctions>;
 /// * `Result<FaultType, String>` - Returns the fault type if found, otherwise an error message.
 pub fn get_fault_from(input: &str) -> Result<FaultType, String> {
     // Parse the fault types
-    let result = FAULTS.iter().find_map(|fault| fault.try_from(input));
+    let result = FAULTS.iter().find_map(|fault| fault.parse(input));
     match result {
         Some(output) => Ok(output),
         None => Err(format!("Unknown fault type: {:?}", input)),
@@ -211,5 +214,115 @@ pub fn get_fault_lists(groups: &mut Iter<String>) -> Vec<Vec<String>> {
     } else {
         // Parse all fault types
         FAULTS.iter().map(|fault| fault.get_list()).collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_glitch_fault() {
+        let fault = get_fault_from("glitch_1");
+        assert!(fault.is_ok());
+        assert!(format!("{:?}", fault.unwrap()).contains("Glitch"));
+    }
+
+    #[test]
+    fn parse_glitch_large_number() {
+        let fault = get_fault_from("glitch_10");
+        assert!(fault.is_ok());
+    }
+
+    #[test]
+    fn parse_register_bitflip() {
+        let fault = get_fault_from("regbf_r0_00000001");
+        assert!(fault.is_ok());
+        assert!(format!("{:?}", fault.unwrap()).contains("BitFlip"));
+    }
+
+    #[test]
+    fn parse_register_flood() {
+        let fault = get_fault_from("regfld_r5_00000000");
+        assert!(fault.is_ok());
+        assert!(format!("{:?}", fault.unwrap()).contains("Flood"));
+    }
+
+    #[test]
+    fn parse_cmd_bitflip() {
+        let fault = get_fault_from("cmdbf_00000001");
+        assert!(fault.is_ok());
+        assert!(format!("{:?}", fault.unwrap()).contains("Command"));
+    }
+
+    #[test]
+    fn parse_unknown_fault_returns_error() {
+        let fault = get_fault_from("unknown_fault_123");
+        assert!(fault.is_err());
+    }
+
+    #[test]
+    fn parse_empty_string_returns_error() {
+        let fault = get_fault_from("");
+        assert!(fault.is_err());
+    }
+
+    #[test]
+    fn get_fault_lists_with_glitch_filter() {
+        let groups = ["glitch".to_string()];
+        let lists = get_fault_lists(&mut groups.iter());
+        assert_eq!(lists.len(), 1); // Only glitch faults
+        assert!(lists[0][0].starts_with("glitch_"));
+    }
+
+    #[test]
+    fn get_fault_lists_with_regbf_filter() {
+        let groups = ["regbf".to_string()];
+        let lists = get_fault_lists(&mut groups.iter());
+        assert_eq!(lists.len(), 1);
+        assert!(lists[0][0].starts_with("regbf_"));
+    }
+
+    #[test]
+    fn get_fault_lists_empty_returns_all() {
+        let groups: [String; 0] = [];
+        let lists = get_fault_lists(&mut groups.iter());
+        assert_eq!(lists.len(), 4); // All 4 fault types
+    }
+
+    #[test]
+    fn glitch_list_has_expected_range() {
+        let glitch = Glitch { number: 1 };
+        let list = glitch.get_list();
+        assert_eq!(list.len(), 8);
+        assert_eq!(list[0], "glitch_1");
+        assert_eq!(list[7], "glitch_8");
+    }
+
+    #[test]
+    fn register_bitflip_roundtrip() {
+        let rbf = RegisterBitFlip {
+            register: unicorn_engine::RegisterARM::R0,
+            xor_value: 0x01,
+        };
+        let parsed = rbf.parse("regbf_r0_00000001");
+        assert!(parsed.is_some());
+    }
+
+    #[test]
+    fn cmd_bitflip_roundtrip() {
+        let cbf = CmdBitFlip { xor_value: 0x01 };
+        let parsed = cbf.parse("cmdbf_00000001");
+        assert!(parsed.is_some());
+    }
+
+    #[test]
+    fn register_flood_roundtrip() {
+        let rf = RegisterFlood {
+            register: unicorn_engine::RegisterARM::R0,
+            value: 0x00,
+        };
+        let parsed = rf.parse("regfld_r0_00000000");
+        assert!(parsed.is_some());
     }
 }

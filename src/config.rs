@@ -218,10 +218,9 @@ pub struct Config {
 impl Config {
     // Keep defaults in sync with CLI defaults
     fn default_threads() -> usize {
-        let num_cpus = std::thread::available_parallelism()
+        std::thread::available_parallelism()
             .map(|n| n.get())
-            .unwrap_or(1);
-        num_cpus
+            .unwrap_or(1)
     }
 
     fn default_max_instructions() -> usize {
@@ -381,4 +380,101 @@ pub struct Args {
     /// Format: --failure-addresses 0x8000789 0x8000abc
     #[arg(long, value_parser = parse_hex_address, num_args = 0..)]
     pub failure_addresses: Vec<u64>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_hex_with_prefix() {
+        assert_eq!(parse_hex("0x1000"), Ok(0x1000));
+    }
+
+    #[test]
+    fn parse_hex_without_prefix() {
+        assert_eq!(parse_hex("ABCD"), Ok(0xABCD));
+    }
+
+    #[test]
+    fn parse_hex_mixed_case() {
+        assert_eq!(parse_hex("0xaBcD"), Ok(0xABCD));
+    }
+
+    #[test]
+    fn parse_hex_invalid_returns_error() {
+        assert!(parse_hex("ZZZZ").is_err());
+    }
+
+    #[test]
+    fn parse_hex_empty_returns_error() {
+        assert!(parse_hex("").is_err());
+    }
+
+    #[test]
+    fn get_register_from_name_r0() {
+        assert_eq!(get_register_from_name("R0"), Some(RegisterARM::R0));
+    }
+
+    #[test]
+    fn get_register_from_name_sp() {
+        assert_eq!(get_register_from_name("SP"), Some(RegisterARM::SP));
+    }
+
+    #[test]
+    fn get_register_from_name_lowercase() {
+        assert_eq!(get_register_from_name("pc"), Some(RegisterARM::PC));
+    }
+
+    #[test]
+    fn get_register_from_name_unknown() {
+        assert_eq!(get_register_from_name("XYZ"), None);
+    }
+
+    #[test]
+    fn config_from_json_string() {
+        let json = r#"{"elf": "test.elf", "class": ["single", "glitch"], "max_instructions": 500}"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        assert_eq!(config.max_instructions, 500);
+        assert_eq!(config.class, vec!["single", "glitch"]);
+        assert_eq!(config.elf, Some(PathBuf::from("test.elf")));
+    }
+
+    #[test]
+    fn config_defaults_applied() {
+        let json = r#"{}"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        assert_eq!(config.max_instructions, 2000);
+        assert!(config.threads > 0);
+        assert!(!config.analysis);
+    }
+
+    #[test]
+    fn config_hex_addresses() {
+        let json = r#"{"success_addresses": ["0x1000", "0x2000"], "failure_addresses": [4096]}"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        assert_eq!(config.success_addresses, vec![0x1000, 0x2000]);
+        assert_eq!(config.failure_addresses, vec![4096]);
+    }
+
+    #[test]
+    fn config_initial_registers() {
+        let json = r#"{"initial_registers": {"R0": "0xFF", "SP": "0x20000000"}}"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        assert_eq!(config.initial_registers.len(), 2);
+        assert_eq!(config.initial_registers[&RegisterARM::R0], 0xFF);
+        assert_eq!(config.initial_registers[&RegisterARM::SP], 0x20000000);
+    }
+
+    #[test]
+    fn config_invalid_register_name() {
+        let json = r#"{"initial_registers": {"INVALID": "0xFF"}}"#;
+        let result: Result<Config, _> = serde_json::from_str(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_hex_address_public() {
+        assert_eq!(parse_hex_address("0x8000123"), Ok(0x8000123));
+    }
 }

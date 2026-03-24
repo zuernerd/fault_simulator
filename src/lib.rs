@@ -6,7 +6,6 @@
 //!
 //! ## Core Modules
 //!
-//! * `compile` - Cross-compilation support for ARM targets
 //! * `config` - Configuration management and command-line argument parsing
 //! * `disassembly` - ARM instruction disassembly using Capstone engine
 //! * `elf_file` - ELF file parsing and analysis
@@ -20,7 +19,6 @@
 //! The library is designed to be used both as a standalone application and as a library
 //! for embedding fault injection capabilities into other tools.
 
-pub mod compile;
 pub mod config;
 pub mod disassembly;
 pub mod elf_file;

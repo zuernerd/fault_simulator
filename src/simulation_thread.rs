@@ -77,7 +77,6 @@ impl SimulationConfig {
     ///
     /// * `cycles` - Maximum number of CPU cycles/instructions to execute per simulation.
     /// * `deep_analysis` - Enable detailed analysis of loops and repeated code patterns.
-    /// * `run_through` - Continue simulation after finding successful attacks (don't stop early).
     /// * `success_addresses` - Memory addresses that indicate successful attack when accessed.
     /// * `failure_addresses` - Memory addresses that indicate attack failure when accessed.
     /// * `initial_registers` - Initial CPU register values to set before each simulation.
@@ -343,8 +342,8 @@ impl SimulationThread {
     ///
     /// # Synchronization
     ///
-    /// Uses shared `work_load_counter` (`Arc<Mutex<usize>>`) to track completed simulations
-    /// for coordination between worker threads and the main coordination logic.
+    /// Worker threads use the shared workload channel for round-robin work
+    /// distribution and result channels for returning data to the coordinator.
     pub fn start_worker_threads(
         &mut self,
         file_data: &ElfFile,
@@ -386,48 +385,44 @@ impl SimulationThread {
                         fault_sender,
                     } = msg;
 
-                    // Todo: Do error handling
                     match run_type {
                         RunType::RecordFullTrace | RunType::RecordTrace => {
-                            match Control::new(
+                            let result = Control::new(
                                 &file,
                                 false,
                                 success_addrs.clone(),
                                 failure_addrs.clone(),
                                 init_regs.clone(),
                             )
-                            .run_with_faults(cycles, run_type, deep_analysis, &records)
-                            .unwrap()
-                            {
-                                Data::Trace(trace) => trace_sender
-                                    .unwrap()
-                                    .send(trace)
-                                    .expect("Unable to send trace data"),
-                                _ => trace_sender
-                                    .unwrap()
-                                    .send(vec![])
-                                    .expect("Unable to send trace data"),
+                            .run_with_faults(
+                                cycles,
+                                run_type,
+                                deep_analysis,
+                                &records,
+                            );
+
+                            let trace = match result {
+                                Ok(Data::Trace(trace)) => trace,
+                                _ => vec![],
+                            };
+                            if let Some(sender) = trace_sender {
+                                let _ = sender.send(trace);
                             }
                         }
                         RunType::Run => {
-                            match simulation
-                                .run_with_faults(cycles, run_type, deep_analysis, &records)
-                                .unwrap()
-                            {
-                                Data::Fault(fault) => {
-                                    // Attach fault records
-                                    fault_sender
-                                        .unwrap()
-                                        .send(fault)
-                                        .expect("Unable to send fault data");
-                                }
-                                Data::None => {
-                                    fault_sender
-                                        .unwrap()
-                                        .send(vec![])
-                                        .expect("Unable to send empty fault data");
-                                }
-                                _ => {}
+                            let result = simulation.run_with_faults(
+                                cycles,
+                                run_type,
+                                deep_analysis,
+                                &records,
+                            );
+
+                            let fault = match result {
+                                Ok(Data::Fault(fault)) => fault,
+                                _ => vec![],
+                            };
+                            if let Some(sender) = fault_sender {
+                                let _ = sender.send(fault);
                             }
                         }
                     }
@@ -490,6 +485,41 @@ impl SimulationThread {
             Err("Workload sender channel is closed".to_string())
         }
     }
+
+    /// Requests an execution trace and waits for the result.
+    ///
+    /// Convenience method that creates a one-shot channel internally,
+    /// submits a trace recording workload, and blocks until the trace
+    /// is returned by a worker thread.
+    ///
+    /// # Arguments
+    ///
+    /// * `run_type` - Type of trace recording to perform.
+    /// * `deep_analysis` - Enable detailed loop and pattern analysis.
+    /// * `fault_records` - Fault injections to apply during trace recording.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(TraceElement)` - Collected execution trace records.
+    /// * `Err(String)` - Error if workload submission or trace reception fails.
+    pub fn get_trace(
+        &self,
+        run_type: RunType,
+        deep_analysis: bool,
+        fault_records: Vec<FaultRecord>,
+    ) -> Result<TraceElement, String> {
+        let (trace_sender, trace_receiver) = unbounded();
+        self.send_workload(
+            run_type,
+            deep_analysis,
+            fault_records,
+            Some(trace_sender),
+            None,
+        )?;
+        trace_receiver
+            .recv()
+            .map_err(|e| format!("Unable to receive trace data: {}", e))
+    }
 }
 
 /// Gracefully shuts down the SimulationThread by closing channels and joining worker threads.
@@ -509,13 +539,15 @@ impl SimulationThread {
 /// properly released when the SimulationThread is no longer needed.
 impl Drop for SimulationThread {
     fn drop(&mut self) {
-        // Drop the main workload channel
+        // Drop the main workload channel to signal shutdown
         self.workload_sender = None;
 
         // Wait for all threads to finish processing
-        for handle in self.handles.as_mut().unwrap().drain(..) {
-            if let Err(e) = handle.join() {
-                eprintln!("A thread panicked: {:?}", e);
+        if let Some(handles) = self.handles.take() {
+            for handle in handles {
+                if let Err(e) = handle.join() {
+                    eprintln!("A thread panicked: {:?}", e);
+                }
             }
         }
     }

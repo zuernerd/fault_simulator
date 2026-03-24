@@ -34,14 +34,14 @@ fn criterion_benchmark(c: &mut Criterion) {
     group.sample_size(10);
     group.bench_function("single attack", |b| {
         b.iter(|| {
-            let _ = attack.single(&mut vec!["glitch".to_string()].iter(), false);
-            let _ = attack.single(&mut vec!["glitch".to_string()].iter(), false);
+            let _ = attack.single(&["glitch".to_string()], false);
+            let _ = attack.single(&["glitch".to_string()], false);
         })
     });
     group.bench_function("double attack", |b| {
         b.iter(|| {
-            let _ = attack.double(&mut vec!["glitch".to_string()].iter(), false);
-            let _ = attack.double(&mut vec!["glitch".to_string()].iter(), false);
+            let _ = attack.double(&["glitch".to_string()], false);
+            let _ = attack.double(&["glitch".to_string()], false);
         })
     });
 }

@@ -8,19 +8,14 @@ use super::simulation::{fault_data::FaultData, record::FaultRecord, Control, Run
 use crate::{disassembly::Disassembly, elf_file::ElfFile};
 use faults::*;
 use itertools::iproduct;
-// use std::time::{SystemTime, UNIX_EPOCH};
-use std::slice::Iter;
 use std::sync::Arc;
-use std::time::Duration;
 
-use crossbeam_channel::{unbounded, Receiver, RecvTimeoutError};
 pub struct FaultAttacks {
     cs: Disassembly,
     pub file_data: ElfFile,
     pub fault_data: Vec<FaultElement>,
     pub initial_trace: TraceElement,
     pub count_sum: usize,
-    result_receiver: Option<Receiver<(Vec<FaultElement>, usize)>>,
     user_thread: Arc<SimulationThread>,
     fault_attack_thread: Option<FaultAttackThread>,
     number_of_threads: Option<usize>,
@@ -35,7 +30,7 @@ impl FaultAttacks {
     ///
     /// # Arguments
     ///
-    /// * `file_data` - Owned ELF file containing the target program.
+    /// * `file_data` - Reference to the ELF file containing the target program (will be cloned).
     /// * `user_thread` - Arc-wrapped SimulationThread with worker threads started.
     ///
     /// # Returns
@@ -45,8 +40,8 @@ impl FaultAttacks {
     ///
     /// # Note
     ///
-    /// This constructor takes ownership of the ELF file data and stores a shared reference to the SimulationThread.
-    pub fn new(file_data: ElfFile, user_thread: Arc<SimulationThread>) -> Result<Self, String> {
+    /// This constructor borrows the ELF file data, clones it internally, and stores a shared reference to the SimulationThread.
+    pub fn new(file_data: &ElfFile, user_thread: Arc<SimulationThread>) -> Result<Self, String> {
         // Return the FaultAttacks instance
         Ok(Self {
             cs: Disassembly::new(),
@@ -54,24 +49,23 @@ impl FaultAttacks {
             fault_data: Vec::new(),
             initial_trace: Vec::new(),
             count_sum: 0,
-            result_receiver: None,
             user_thread,
             fault_attack_thread: None,
             number_of_threads: None,
         })
     }
 
-    /// Retrieves a copy of all collected fault injection results.
+    /// Returns a reference to all collected fault injection results.
     ///
-    /// This method returns a clone of the internal fault data collection,
+    /// This method returns a shared slice of the internal fault data collection,
     /// containing all successful fault injection attacks discovered during
     /// simulation runs. Each element represents a successful attack scenario
     /// with complete fault injection details and execution context.
     ///
     /// # Returns
     ///
-    /// * `Vec<FaultElement>` - Collection of successful fault injection results.
-    ///   Returns an empty vector if no successful attacks have been found yet.
+    /// * `&[FaultElement]` - Slice reference to the successful fault injection results.
+    ///   Returns an empty slice if no successful attacks have been found yet.
     ///
     /// # Usage
     ///
@@ -79,8 +73,8 @@ impl FaultAttacks {
     /// campaigns to retrieve and analyze the results. The returned data can be
     /// used for further analysis, reporting, or persistence.
     ///
-    pub fn get_fault_data(&self) -> Vec<FaultElement> {
-        self.fault_data.clone()
+    pub fn get_fault_data(&self) -> &[FaultElement] {
+        &self.fault_data
     }
 
     /// Initializes dedicated fault attack worker threads.
@@ -101,17 +95,12 @@ impl FaultAttacks {
     ///
     /// # Note
     ///
-    /// This should be called before running fault attacks to enable optimized
-    /// parallel execution. If not called, fault attacks will fall back to
+    /// This must be called before running fault attacks to enable parallel execution.
     pub fn start_fault_attack_threads(&mut self, number_of_threads: usize) -> Result<(), String> {
         // Set threads
         self.number_of_threads = Some(number_of_threads);
-        // Create a channel for collecting results
-        let (result_sender, result_receiver) = unbounded();
-        // Set reveiver
-        self.result_receiver = Some(result_receiver);
         // Initialize fault attack thread
-        let mut fault_attack_thread = FaultAttackThread::new(result_sender)?;
+        let mut fault_attack_thread = FaultAttackThread::new()?;
         fault_attack_thread
             .start_worker_threads(number_of_threads, Arc::clone(&self.user_thread))?;
         self.fault_attack_thread = Some(fault_attack_thread);
@@ -141,12 +130,13 @@ impl FaultAttacks {
     /// # Usage
     ///
     /// This is the recommended way to create FaultAttacks instances when you want
+    /// parallel fault attack execution from the start.
     pub fn new_with_threads(
         file_data: &ElfFile,
         user_thread: Arc<SimulationThread>,
         fault_attack_threads: usize,
     ) -> Result<Self, String> {
-        let mut fault_attacks = Self::new(file_data.clone(), user_thread)?;
+        let mut fault_attacks = Self::new(file_data, user_thread)?;
         fault_attacks.start_fault_attack_threads(fault_attack_threads)?;
         Ok(fault_attacks)
     }
@@ -176,7 +166,7 @@ impl FaultAttacks {
     ///
     /// # Arguments
     ///
-    /// * `groups` - Iterator over fault group names (e.g., "glitch", "regbf", "regfld").
+    /// * `groups` - Slice of fault group names (e.g., "glitch", "regbf", "regfld").
     /// * `run_through` - Continue simulation after finding successful attacks (don't stop early).
     ///
     /// # Returns
@@ -194,10 +184,10 @@ impl FaultAttacks {
     /// - Respects `run_through` flag for early termination
     pub fn single(
         &mut self,
-        groups: &mut Iter<String>,
+        groups: &[String],
         run_through: bool,
     ) -> Result<(bool, usize), String> {
-        let lists = get_fault_lists(groups); // Get all faults of all lists
+        let lists = get_fault_lists(&mut groups.iter()); // Get all faults of all lists
         let mut any_success = false; // Track if any fault was successful
 
         for list in lists {
@@ -226,7 +216,7 @@ impl FaultAttacks {
     ///
     /// # Arguments
     ///
-    /// * `groups` - Iterator over fault group names to generate pairs from.
+    /// * `groups` - Slice of fault group names to generate pairs from.
     /// * `run_through` - Continue simulation after finding successful attacks (don't stop early).
     ///
     /// # Returns
@@ -242,10 +232,10 @@ impl FaultAttacks {
     /// For a list of N faults, this will test N² combinations.
     pub fn double(
         &mut self,
-        groups: &mut Iter<String>,
+        groups: &[String],
         run_through: bool,
     ) -> Result<(bool, usize), String> {
-        let lists = get_fault_lists(groups); // Get all faults of all lists
+        let lists = get_fault_lists(&mut groups.iter()); // Get all faults of all lists
         let mut any_success = false; // Track if any fault was successful
 
         for list in lists {
@@ -281,7 +271,7 @@ impl FaultAttacks {
     ///
     /// # Arguments
     ///
-    /// * `faults` - Ordered sequence of faults to inject during execution.
+    /// * `chunks` - Slice of fault sequences to execute in parallel.
     ///
     /// # Returns
     ///
@@ -292,49 +282,19 @@ impl FaultAttacks {
     ///
     /// Requires fault attack threads to be initialized via `start_fault_attack_threads()` first.
     pub fn fault_simulation(&mut self, chunks: &[Vec<FaultType>]) -> Result<bool, String> {
-        let fault_attack_thread = match &mut self.fault_attack_thread {
+        let fault_attack_thread = match &self.fault_attack_thread {
             Some(thread) => thread,
             None => {
                 return Err("Fault attack threads not initialized. Call start_fault_attack_threads() first.".to_string());
             }
         };
 
-        let mut n_workload = 0;
-        // Send all fault attack workloads to the fault attack thread
-        for faults in chunks.iter() {
-            //dbg!(faults);
-            // Run main fault simulation loop
-            fault_attack_thread.send_fault_attack_workload(faults)?;
-            //
-            n_workload += 1;
+        let (data, count) = fault_attack_thread.run_batch(chunks)?;
+        self.count_sum += count;
+        let any_success = !data.is_empty();
+        if any_success {
+            self.fault_data.extend(data);
         }
-
-        let mut any_success = false;
-        // Collect results from worker threads
-        for _ in 0..n_workload {
-            match self
-                .result_receiver
-                .as_ref()
-                .unwrap()
-                .recv_timeout(Duration::from_millis(5000))
-            {
-                Ok((data, n)) => {
-                    self.count_sum += n;
-                    if !data.is_empty() {
-                        // Push intermediate data to fault data
-                        self.fault_data.append(&mut data.clone());
-                        any_success = true;
-                    }
-                }
-                Err(RecvTimeoutError::Timeout) => {
-                    return Err("Timeout while receiving fault attack results".to_string());
-                }
-                Err(RecvTimeoutError::Disconnected) => {
-                    return Err("Fault attack result channel disconnected".to_string());
-                }
-            }
-        }
-
         Ok(any_success)
     }
 
@@ -364,18 +324,8 @@ impl FaultAttacks {
         deep_analysis: bool,
         fault_data: Vec<FaultRecord>,
     ) -> Result<TraceElement, String> {
-        let (trace_response_sender, trace_response_receiver) = unbounded();
-        self.user_thread.send_workload(
-            run_type,
-            deep_analysis,
-            fault_data,
-            Some(trace_response_sender),
-            None,
-        )?;
-        let trace_record = trace_response_receiver
-            .recv()
-            .expect("Unable to receive trace data");
-        Ok(trace_record)
+        self.user_thread
+            .get_trace(run_type, deep_analysis, fault_data)
     }
 
     /// Displays disassembled execution trace for a specific successful attack.
@@ -397,13 +347,13 @@ impl FaultAttacks {
     ///
     /// Requires that fault simulation has been run and successful attacks exist
     /// in `self.fault_data`.
-    pub fn print_trace_for_fault(&self, attack_number: isize) -> Result<(), String> {
+    pub fn print_trace_for_fault(&self, attack_number: usize) -> Result<(), String> {
         if !self.fault_data.is_empty()
             && attack_number > 0
-            && attack_number as usize <= self.fault_data.len()
+            && attack_number <= self.fault_data.len()
         {
             let fault_records = FaultData::get_simulation_fault_records(
-                self.fault_data.get(attack_number as usize - 1).unwrap(),
+                self.fault_data.get(attack_number - 1).unwrap(),
             );
 
             // Run full trace
@@ -413,7 +363,7 @@ impl FaultAttacks {
                 fault_records.to_vec(),
             )?);
             // Print trace
-            println!("\nAssembler trace of attack number {}", attack_number + 1);
+            println!("\nAssembler trace of attack number {}", attack_number);
 
             let debug_context = self.file_data.get_debug_context();
 
