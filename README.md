@@ -117,25 +117,25 @@ You can configure the simulator using either command-line arguments or a JSON5 c
 CLI arguments always override values from the config file.
 
 ### Command-Line Options
-| Flag/Option                    | Description |
-|--------------------------------|-------------|
-| `-c, --config <CONFIG>`             | Load configuration from JSON file |
-| `-t, --threads <THREADS>`      | Number of threads started in parallel [default: 1]. "-t 0" activate full thread usage |
-| `-n, --no-compilation`         | Suppress re-compilation of target program |
-| `--class <ATTACK>,<GROUPS>`    | Attack class to be executed. Possible values are: all, single, double [default: all]. GROUPS can be the names of the implemented attacks. E.g. --class single regbf separated by ' ' |
-| `--faults <FAULTS>`            | Run a command line defined sequence of faults. Alternative to --attack. (E.g. --faults glitch_1 glitch_10). Current implemented fault attacks: <br> - glitch_1 .. glitch_10 <br> - regbf_r0_00000001 .. regbf_r12_80000000 <br> - regfld_r0_00000000 or regfld_r0_FFFFFFFF <br> - cmdbf_00000000 .. cmdbf_80000000 |
-| `-a, --analysis`               | Activate trace analysis of picked fault |
-| `-d, --deep-analysis`          | Check with deep analysis scan. Repeated code (e.g. loops) are fully analysed |
-| `-m, --max_instructions`       | Maximum number of instructions to be executed. Required for longer code under investigation (Default value: 2000) |
-| `--no_check`                   | Disable program flow check |
-| `-e, --elf <FILE>`             | Use external elf file w/o compilation step |
-| `--trace`                      | Trace and analyse program w/o fault injection |
-| `-r, --run-through`            | Don't stop on first successful fault injection |
-| `--log-level <LEVEL>`          | Set logging verbosity: off, error, warn, info, debug, trace [default: info] |
-| `--success-addresses [<SUCCESS_ADDRESSES>...]` | List of memory addresses that indicate success when accessed Format: --success-addresses 0x8000123 0x8000456 |
-| `--failure-addresses [<FAILURE_ADDRESSES>...]` | List of memory addresses that indicate failure when accessed Format: --failure-addresses 0x8000789 0x8000abc |
-| `-h, --help`                   | Print help |
-| `-V, --version`                | Print version |
+| Flag/Option                                    | Description                                                                                                                                                                                                                                                                                                        |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `-c, --config <CONFIG>`                        | Load configuration from JSON file                                                                                                                                                                                                                                                                                  |
+| `-t, --threads <THREADS>`                      | Number of threads started in parallel [default: 1]. "-t 0" activate full thread usage                                                                                                                                                                                                                              |
+| `-n, --no-compilation`                         | Suppress re-compilation of target program                                                                                                                                                                                                                                                                          |
+| `--class <ATTACK>,<GROUPS>`                    | Attack class to be executed. Possible values are: all, single, double [default: all]. GROUPS can be the names of the implemented attacks. E.g. --class single regbf separated by ' '                                                                                                                               |
+| `--faults <FAULTS>`                            | Run a command line defined sequence of faults. Alternative to --attack. (E.g. --faults glitch_1 glitch_10). Current implemented fault attacks: <br> - glitch_1 .. glitch_10 <br> - regbf_r0_00000001 .. regbf_r12_80000000 <br> - regfld_r0_00000000 or regfld_r0_FFFFFFFF <br> - cmdbf_00000000 .. cmdbf_80000000 |
+| `-a, --analysis`                               | Activate trace analysis of picked fault                                                                                                                                                                                                                                                                            |
+| `-d, --deep-analysis`                          | Check with deep analysis scan. Repeated code (e.g. loops) are fully analysed                                                                                                                                                                                                                                       |
+| `-m, --max_instructions`                       | Maximum number of instructions to be executed. Required for longer code under investigation (Default value: 2000)                                                                                                                                                                                                  |
+| `--no_check`                                   | Disable program flow check                                                                                                                                                                                                                                                                                         |
+| `-e, --elf <FILE>`                             | Use external elf file w/o compilation step                                                                                                                                                                                                                                                                         |
+| `--trace`                                      | Trace and analyse program w/o fault injection                                                                                                                                                                                                                                                                      |
+| `-r, --run-through`                            | Don't stop on first successful fault injection                                                                                                                                                                                                                                                                     |
+| `--log-level <LEVEL>`                          | Set logging verbosity: off, error, warn, info, debug, trace [default: off]                                                                                                                                                                                                                                         |
+| `--success-addresses [<SUCCESS_ADDRESSES>...]` | List of memory addresses that indicate success when accessed Format: --success-addresses 0x8000123 0x8000456                                                                                                                                                                                                       |
+| `--failure-addresses [<FAILURE_ADDRESSES>...]` | List of memory addresses that indicate failure when accessed Format: --failure-addresses 0x8000789 0x8000abc                                                                                                                                                                                                       |
+| `-h, --help`                                   | Print help                                                                                                                                                                                                                                                                                                         |
+| `-V, --version`                                | Print version                                                                                                                                                                                                                                                                                                      |
 
 ### Examples
 
@@ -210,10 +210,10 @@ Control logging verbosity in the configuration file. Can be overridden by the `R
 ```
 
 **Log Levels:**
-- `"off"` - No logging output
+- `"off"` - No logging output (default)
 - `"error"` - Only critical errors (memory access violations, etc.)
 - `"warn"` - Warnings and errors
-- `"info"` - Informational messages, warnings, and errors (default)
+- `"info"` - Informational messages, warnings, and errors
 - `"debug"` - Detailed diagnostic information including memory mapping
 - `"trace"` - Maximum verbosity with all internal operations
 

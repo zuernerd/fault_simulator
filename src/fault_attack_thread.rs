@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::thread::{spawn, JoinHandle};
 
 use crate::disassembly::Disassembly;
+use crate::error::SimulatorError;
 use crate::prelude::{SimulationThread, TraceRecord};
 
 use crate::simulation::{record::FaultRecord, FaultElement, RunType, TraceElement};
@@ -92,7 +93,7 @@ impl FaultAttackThread {
     ///
     /// After creation, call `start_worker_threads()` to spawn the worker thread pool
     /// and begin accepting fault attack workloads.
-    pub fn new() -> Result<Self, String> {
+    pub fn new() -> Result<Self, SimulatorError> {
         // Create a channel for sending fault attack workloads to threads
         let (workload_sender, workload_receiver): (
             Sender<FaultAttackWorkload>,
@@ -140,10 +141,12 @@ impl FaultAttackThread {
         &mut self,
         number_of_threads: usize,
         user_thread: Arc<SimulationThread>,
-    ) -> Result<(), String> {
+    ) -> Result<(), SimulatorError> {
         // Check that number of threads is greater than 0
         if number_of_threads == 0 {
-            return Err("Number of threads must be greater than 0".to_string());
+            return Err(SimulatorError::Thread(
+                "Number of threads must be greater than 0".to_string(),
+            ));
         }
 
         // Create a vector to hold the thread handles
@@ -178,7 +181,7 @@ impl FaultAttackThread {
                             let _ = result_sender.send((result, n));
                         }
                         Err(e) => {
-                            eprintln!("Fault simulation error: {}", e);
+                            log::error!("Fault simulation error: {}", e);
                             let _ = result_sender.send((vec![], 0));
                         }
                     }
@@ -205,16 +208,18 @@ impl FaultAttackThread {
     ///
     /// * `Ok(())` - Workload successfully sent to worker threads.
     /// * `Err(String)` - Error if sending fails or channel is closed.
-    pub fn send_fault_attack_workload(&self, fault_sequence: &[FaultType]) -> Result<(), String> {
+    pub fn send_fault_attack_workload(&self, fault_sequence: &[FaultType]) -> Result<(), SimulatorError> {
         if let Some(sender) = &self.workload_sender {
             let workload = FaultAttackWorkload {
                 fault_sequence: fault_sequence.to_vec(),
             };
             sender
                 .send(workload)
-                .map_err(|e| format!("Failed to send fault attack workload: {}", e))
+                .map_err(|e| SimulatorError::Channel(format!("Failed to send fault attack workload: {}", e)))
         } else {
-            Err("Fault attack workload sender channel is closed".to_string())
+            Err(SimulatorError::Channel(
+                "Fault attack workload sender channel is closed".to_string(),
+            ))
         }
     }
 
@@ -234,7 +239,7 @@ impl FaultAttackThread {
     pub fn run_batch(
         &self,
         chunks: &[Vec<FaultType>],
-    ) -> Result<(Vec<FaultElement>, usize), String> {
+    ) -> Result<(Vec<FaultElement>, usize), SimulatorError> {
         let mut n_workload = 0;
         for faults in chunks {
             self.send_fault_attack_workload(faults)?;
@@ -256,10 +261,14 @@ impl FaultAttackThread {
                     }
                 }
                 Err(RecvTimeoutError::Timeout) => {
-                    return Err("Timeout while receiving fault attack results".to_string());
+                    return Err(SimulatorError::Timeout(
+                        "Timeout while receiving fault attack results".to_string(),
+                    ));
                 }
                 Err(RecvTimeoutError::Disconnected) => {
-                    return Err("Fault attack result channel disconnected".to_string());
+                    return Err(SimulatorError::Channel(
+                        "Fault attack result channel disconnected".to_string(),
+                    ));
                 }
             }
         }
@@ -276,7 +285,9 @@ impl Drop for FaultAttackThread {
         // Wait for all worker threads to complete
         if let Some(handles) = self.handles.take() {
             for handle in handles {
-                let _ = handle.join();
+                if let Err(e) = handle.join() {
+                    log::error!("A fault attack worker thread panicked: {:?}", e);
+                }
             }
         }
     }
@@ -317,7 +328,7 @@ fn fault_simulation(
     mut records: TraceElement,
     cs: &Disassembly,
     user_thread: Arc<SimulationThread>,
-) -> Result<(Vec<FaultElement>, usize), String> {
+) -> Result<(Vec<FaultElement>, usize), SimulatorError> {
     println!("Running simulation for faults: {faults:?}");
 
     // Check if faults are empty
@@ -333,7 +344,7 @@ fn fault_simulation(
     let (fault_response_sender, fault_response_receiver) = unbounded();
 
     // Run main fault simulation loop
-    let n_result: Result<usize, String> = records
+    let n_result: Result<usize, SimulatorError> = records
         .into_iter()
         .map(|record| {
             let number;
@@ -354,7 +365,7 @@ fn fault_simulation(
                     &user_thread,
                 )?;
             } else {
-                return Err("No instruction record found".to_string());
+                return Err(SimulatorError::Simulation("No instruction record found".to_string()));
             }
 
             Ok(number)
@@ -374,10 +385,14 @@ fn fault_simulation(
                 }
             }
             Err(RecvTimeoutError::Timeout) => {
-                return Err("Timeout while receiving fault simulation results".to_string());
+                return Err(SimulatorError::Timeout(
+                    "Timeout while receiving fault simulation results".to_string(),
+                ));
             }
             Err(RecvTimeoutError::Disconnected) => {
-                return Err("Fault simulation result channel disconnected".to_string());
+                return Err(SimulatorError::Channel(
+                    "Fault simulation result channel disconnected".to_string(),
+                ));
             }
         }
     }
@@ -417,7 +432,7 @@ fn fault_simulation_inner(
     simulation_fault_records: &[FaultRecord],
     cs: &Disassembly,
     user_thread: &SimulationThread,
-) -> Result<usize, String> {
+) -> Result<usize, SimulatorError> {
     let mut n = 0;
 
     // Check if there are no remaining faults left
@@ -484,7 +499,7 @@ fn fault_simulation_inner(
 ///
 /// * `Ok(TraceElement)` - Initial execution trace records without faults.
 /// * `Err(String)` - Error message if trace recording fails or times out.
-fn get_initial_trace_data(user_thread: Arc<SimulationThread>) -> Result<TraceElement, String> {
+fn get_initial_trace_data(user_thread: Arc<SimulationThread>) -> Result<TraceElement, SimulatorError> {
     user_thread.get_trace(
         RunType::RecordTrace,
         user_thread.config.deep_analysis,

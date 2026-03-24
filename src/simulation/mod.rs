@@ -15,6 +15,7 @@ pub mod fault_data;
 pub mod record;
 
 use crate::elf_file::ElfFile;
+use crate::error::SimulatorError;
 use cpu::{Cpu, RunState};
 use fault_data::FaultData;
 use log::info;
@@ -192,18 +193,18 @@ impl<'a> Control<'a> {
     ///
     /// * `Ok(())` - Both success and failure paths behave as expected.
     /// * `Err(String)` - Program validation failed with descriptive error message.
-    pub fn check_program(&mut self, cycles: usize) -> Result<(), String> {
+    pub fn check_program(&mut self, cycles: usize) -> Result<(), SimulatorError> {
         // Deactivate io print
         self.emu.deactivate_printf_function();
         if self.run(cycles, true) != RunState::Success {
-            return Err(
+            return Err(SimulatorError::Simulation(
                 "Program function check failed. Success path is not working properly!".to_string(),
-            );
+            ));
         }
         if self.run(cycles, false) != RunState::Failed {
-            return Err(
+            return Err(SimulatorError::Simulation(
                 "Program function check failed. Failure path is not working properly!".to_string(),
-            );
+            ));
         }
         println!("Program checked successfully");
         Ok(())
@@ -234,7 +235,7 @@ impl<'a> Control<'a> {
         run_type: RunType,
         deep_analysis_trace: bool,
         faults: &[FaultRecord],
-    ) -> Result<Data, String> {
+    ) -> Result<Data, SimulatorError> {
         let mut restore_required = false;
         // Initialize and load
         self.init(false);
@@ -263,7 +264,7 @@ impl<'a> Control<'a> {
                 // One single step
                 if let Err(e) = self.emu.run_steps(1, false) {
                     let error_msg = self.report_unicorn_error(e, "fault injection step 1");
-                    return Err(error_msg);
+                    return Err(SimulatorError::Simulation(error_msg));
                 }
                 // Restore instruction if required
                 if restore_required {
@@ -274,7 +275,7 @@ impl<'a> Control<'a> {
                 if fault.index != 1 {
                     if let Err(e) = self.emu.run_steps(fault.index - 1, false) {
                         let error_msg = self.report_unicorn_error(e, "Unicorn Error");
-                        return Err(error_msg);
+                        return Err(SimulatorError::Simulation(error_msg));
                     }
                 }
                 // Read instruction for later restore
@@ -291,7 +292,7 @@ impl<'a> Control<'a> {
             }
             RunType::Run => {
                 if self.emu.get_state() == RunState::Success {
-                    return Err("Successfull state reached before critical glitch inserted! Maybe failure can be triggered with less glitches".to_string());
+                    return Err(SimulatorError::Simulation("Successfull state reached before critical glitch inserted! Maybe failure can be triggered with less glitches".to_string()));
                 }
             }
             _ => (),
@@ -301,7 +302,7 @@ impl<'a> Control<'a> {
         if restore_required {
             if let Err(e) = self.emu.run_steps(1, false) {
                 let error_msg = self.report_unicorn_error(e, "Unicorn Error");
-                return Err(error_msg);
+                return Err(SimulatorError::Simulation(error_msg));
             }
             self.emu.asm_cmd_write(address, &instruction).unwrap();
         }
@@ -322,7 +323,7 @@ impl<'a> Control<'a> {
                     return Ok(Data::Trace(self.emu.get_trace_data().clone()));
                 }
                 RunType::Run => {
-                    return Err(error_msg);
+                    return Err(SimulatorError::Simulation(error_msg));
                 }
             }
         }

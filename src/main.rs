@@ -4,6 +4,7 @@ use std::io::{self, Write};
 use std::sync::Arc;
 
 use fault_simulator::config::{Args, Config};
+use fault_simulator::error::SimulatorError;
 use fault_simulator::prelude::*;
 
 mod compile;
@@ -75,7 +76,7 @@ const GIT_VERSION: &str = git_version!();
 ///
 /// * `Ok(())` - Simulation completed successfully
 /// * `Err(String)` - Detailed error message describing the failure
-fn main() -> Result<(), String> {
+fn main() -> Result<(), SimulatorError> {
     // Get parameter from command line
     let args = Args::parse();
 
@@ -101,7 +102,7 @@ fn main() -> Result<(), String> {
             "info" => "info",
             "debug" => "debug",
             "trace" => "trace",
-            _ => "info", // default
+            _ => "off", // default
         };
         std::env::set_var("RUST_LOG", log_level);
     }
