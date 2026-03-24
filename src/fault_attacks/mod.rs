@@ -425,4 +425,3 @@ impl FaultAttacks {
         simulation.check_program(self.user_thread.config.cycles)
     }
 }
-
