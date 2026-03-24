@@ -1,32 +1,79 @@
+//! # Fault Injection Data Structures
+//!
+//! This module provides data structures for representing successful fault
+//! injection results. It captures the complete context of a fault injection
+//! including the original vs. modified execution and the execution trace.
+
 use crate::simulation::record::{FaultRecord, TraceRecord};
 
-/// Struct representing fault data.
+/// Complete record of a successful fault injection during simulation.
+///
+/// This structure represents the outcome of a fault injection that resulted
+/// in a successful attack (reached success criteria). It captures both the
+/// intended fault specification and the actual execution results, enabling
+/// detailed analysis of fault injection effectiveness.
+///
+/// # Fault Injection Context
+///
+/// * **Original State**: What would have executed without the fault
+/// * **Modified State**: What actually executed due to the fault injection
+/// * **Execution Trace**: Complete record of the execution with fault applied
+/// * **Fault Specification**: The original fault injection parameters
+///
+/// # Analysis Applications
+///
+/// * **Impact Assessment**: Compare original vs. modified instruction effects
+/// * **Pattern Recognition**: Identify common successful fault characteristics
+/// * **Reproducibility**: Replay successful attacks for further analysis
+/// * **Report Generation**: Document successful attack vectors
 #[derive(Clone, Debug)]
-/// Representation of an fault which was executed in a simulation.
 pub struct FaultData {
-    /// The original instructions which would have been performed without the fault.
+    /// Original instruction bytes that would have executed without fault injection.
+    ///
+    /// Represents the intended program behavior, serving as a baseline
+    /// for understanding the fault's impact on execution.
     pub original_instruction: Vec<u8>,
-    /// The modified instructions if it was changed which is performed with the fault.
+    /// Modified instruction bytes that actually executed due to fault injection.
+    ///
+    /// May be identical to original_instruction for faults that don't modify
+    /// the instruction stream directly (e.g., register modifications).
     pub modified_instruction: Vec<u8>,
-    /// The recorded execution trace of this fault.
+    /// Complete execution trace record capturing the fault injection event.
+    ///
+    /// Contains detailed information about where and how the fault manifested
+    /// during program execution, including timing and state information.
     pub record: TraceRecord,
-    /// FaultRecord which caused this FaultData to be simulated.
+    /// Original fault specification that led to this successful injection.
+    ///
+    /// Links the successful result back to the fault injection parameters,
+    /// enabling reconstruction of the attack conditions.
     pub fault: FaultRecord,
 }
 
 impl FaultData {
-    /// Creates a new `FaultData` instance.
+    /// Creates a new FaultData instance representing a successful fault injection.
+    ///
+    /// This constructor assembles the complete context of a successful fault
+    /// injection, linking the intended fault specification with the actual
+    /// execution results for comprehensive analysis.
     ///
     /// # Arguments
     ///
-    /// * `original_instruction` - The original instruction bytes.
-    /// * `modified_instruction` - The modified instruction bytes.
-    /// * `record` - The trace record.
-    /// * `fault` - The fault record.
+    /// * `original_instruction` - Instruction bytes that would have executed normally
+    /// * `modified_instruction` - Actual instruction bytes executed due to fault
+    /// * `record` - Execution trace record capturing the fault injection event
+    /// * `fault` - Original fault specification that caused this result
     ///
     /// # Returns
     ///
-    /// * `Self` - Returns a `FaultData` instance.
+    /// A FaultData instance containing the complete fault injection context,
+    /// suitable for analysis, reporting, and potential replay operations.
+    ///
+    /// # Usage
+    ///
+    /// Typically called by the simulation engine when a fault injection
+    /// results in reaching the success criteria, to document the successful
+    /// attack vector for later analysis.
     pub fn new(
         original_instruction: Vec<u8>,
         modified_instruction: Vec<u8>,
@@ -52,5 +99,61 @@ impl FaultData {
     /// * `Vec<FaultRecord>` - Returns a vector of fault records.
     pub fn get_simulation_fault_records(fault_data: &[FaultData]) -> Vec<FaultRecord> {
         fault_data.iter().map(|data| data.fault.clone()).collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::fault_attacks::faults::get_fault_from;
+
+    fn make_fault_data(addr: u64) -> FaultData {
+        FaultData::new(
+            vec![0x00, 0xBF],
+            vec![0xFF, 0xFF],
+            TraceRecord::Instruction {
+                address: addr,
+                index: 0,
+                asm_instruction: vec![0x00, 0xBF],
+                registers: None,
+            },
+            FaultRecord {
+                index: 0,
+                fault_type: get_fault_from("glitch_1").unwrap(),
+            },
+        )
+    }
+
+    #[test]
+    fn new_stores_fields() {
+        let fd = make_fault_data(0x1000);
+        assert_eq!(fd.original_instruction, vec![0x00, 0xBF]);
+        assert_eq!(fd.modified_instruction, vec![0xFF, 0xFF]);
+        assert_eq!(fd.fault.index, 0);
+    }
+
+    #[test]
+    fn get_simulation_fault_records_empty() {
+        let records = FaultData::get_simulation_fault_records(&[]);
+        assert!(records.is_empty());
+    }
+
+    #[test]
+    fn get_simulation_fault_records_multiple() {
+        let data = vec![
+            make_fault_data(0x100),
+            make_fault_data(0x200),
+            make_fault_data(0x300),
+        ];
+        let records = FaultData::get_simulation_fault_records(&data);
+        assert_eq!(records.len(), 3);
+    }
+
+    #[test]
+    fn clone_preserves_data() {
+        let fd = make_fault_data(0x4000);
+        let cloned = fd.clone();
+        assert_eq!(fd.original_instruction, cloned.original_instruction);
+        assert_eq!(fd.fault.index, cloned.fault.index);
     }
 }

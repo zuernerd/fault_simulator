@@ -64,7 +64,7 @@ impl FaultFunctions for Example {
     /// # Returns
     ///
     /// * `Option<FaultType>` - Returns the fault type if successful, otherwise `None`.
-    fn try_from(&self, _input: &str) -> Option<FaultType> {
+    fn parse(&self, _input: &str) -> Option<FaultType> {
         None
     }
 

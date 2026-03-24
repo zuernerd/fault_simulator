@@ -1,8 +1,28 @@
+//! # CPU Emulation and Execution Control
+//!
+//! This module provides ARM Cortex-M processor emulation using the Unicorn Engine.
+//! It handles program execution, fault injection, memory management, and execution
+//! state tracking for comprehensive fault injection simulation.
+//!
+//! ## Key Capabilities
+//!
+//! * **ARM Cortex-M Emulation**: Full ARMv8-M instruction set support
+//! * **Memory Management**: ELF loading, MMIO simulation, memory protection
+//! * **Execution Hooks**: Instruction-level monitoring and control
+//! * **Fault Injection**: Runtime fault application and state modification
+//! * **Trace Recording**: Comprehensive execution trace collection
+//!
+//! ## Architecture Support
+//!
+//! Specifically tuned for ARM Cortex-M processors with:
+//! * Thumb-2 instruction set
+//! * M-Profile system architecture
+//! * Memory-mapped I/O simulation
+//! * Exception and interrupt handling
+
 use crate::elf_file::{ElfFile, PF_R, PF_W, PF_X};
-use crate::simulation::{
-    record::{FaultRecord, TraceRecord},
-    FaultElement, TraceElement,
-};
+use crate::simulation::record::{FaultRecord, TraceRecord};
+use crate::simulation::{FaultElement, TraceElement};
 
 mod callback;
 
@@ -12,17 +32,29 @@ use callback::{
 };
 
 use unicorn_engine::unicorn_const::uc_error;
-use unicorn_engine::unicorn_const::{Arch, HookType, Mode, Prot, SECOND_SCALE};
+use unicorn_engine::unicorn_const::{Arch, HookType, Mode, Prot};
 use unicorn_engine::{Context, RegisterARM, Unicorn};
 
 use log::debug;
 use std::collections::{HashMap, HashSet};
 
-// Constant variable definitions
+/// Base address for authentication system MMIO region.
+///
+/// This address is used for simulating authentication peripherals
+/// that are commonly targeted in fault injection attacks.
 const AUTH_BASE: u64 = 0xAA01000;
 
+/// ARM Thumb-1 return instruction encoding (bx lr).
+///
+/// Used for function patching and control flow manipulation
+/// during fault injection simulation.
 const T1_RET: [u8; 2] = [0x70, 0x47]; // bx lr
 
+/// Complete ARM register set for Cortex-M processors.
+///
+/// Defines all general-purpose registers (R0-R12), stack pointer (SP),
+/// link register (LR), program counter (PC), and program status register (CPSR)
+/// in the order used by the Unicorn Engine for state access.
 pub const ARM_REG: [RegisterARM; 17] = [
     RegisterARM::R0,
     RegisterARM::R1,
@@ -43,19 +75,38 @@ pub const ARM_REG: [RegisterARM; 17] = [
     RegisterARM::CPSR,
 ];
 
+/// Execution state enumeration for simulation control and result classification.
+///
+/// Tracks the current state of program execution and provides clear
+/// categorization of simulation outcomes for fault injection analysis.
 #[derive(PartialEq, Debug, Clone, Copy, Default)]
 pub enum RunState {
+    /// Initial state before execution begins.
     #[default]
     Init = 0,
+    /// Successful execution reaching success criteria.
     Success,
+    /// Failed execution (detected attack or normal termination).
     Failed,
+    /// Error state (crashes, invalid operations, etc.).
     Error,
 }
 
-/// Struct representing the CPU for the simulation.
+/// ARM CPU emulator for fault injection simulation.
+///
+/// This struct encapsulates a Unicorn Engine ARM CPU emulator instance along with
+/// simulation state, memory management, and fault injection tracking. It provides
+/// methods for program execution, fault injection, tracing, and state management.
+///
+/// # Fields
+///
+/// The struct contains the CPU emulator, memory layout, execution state tracking,
+/// fault data collection, trace recording, and various simulation parameters.
 pub struct Cpu<'a> {
     emu: Unicorn<'a, CpuState<'a>>,
     program_counter: u64,
+    /// Saved CPU context for potential state save/restore operations.
+    #[allow(dead_code)]
     cpu_context: Context,
     initial_registers: HashMap<RegisterARM, u64>,
 }
@@ -123,9 +174,15 @@ impl<'a> Cpu<'a> {
         }
     }
 
-    /// Initialize all required register to zero or custom values
+    /// Initialize all ARM registers to zero or custom initial values.
     ///
-    /// Additionally the SP is set to start of stack
+    /// Sets all general-purpose registers (R0-R12) to zero by default, then applies
+    /// any custom initial values specified in the configuration. The stack pointer (SP)
+    /// is initialized to the start of the designated stack memory region.
+    ///
+    /// # Note
+    ///
+    /// Custom register values from `initial_registers` HashMap take precedence over defaults.
     pub fn init_register(&mut self) {
         // Clear all registers first
         ARM_REG
@@ -480,7 +537,7 @@ impl<'a> Cpu<'a> {
             ret_val = self.emu.emu_start(
                 self.program_counter | 1,
                 end_address | 1,
-                SECOND_SCALE,
+                0, // No wall-clock timeout; rely on cycle count only
                 cycles,
             );
         }
@@ -559,22 +616,20 @@ impl<'a> Cpu<'a> {
         self.emu.get_data_mut().fault_data.clear();
     }
 
-    /// Clear trace data in internal structure
-    pub fn clear_trace_data(&mut self) {
-        // Remove hooks from list
-        self.emu.get_data_mut().trace_data.clear();
+    /// Execute fault injection according to fault type
+    /// Program is stopped and will be continued after fault injection
+    pub fn execute_fault_injection(&mut self, fault: &FaultRecord) -> bool {
+        fault.fault_type.execute(self, fault)
     }
-
-    /// Initialize the CPUState
-    ///
     pub fn init_cpu_state(&mut self) {
-        self.emu.get_data_mut().state = RunState::Init;
-        self.emu.get_data_mut().start_trace = false;
-        self.emu.get_data_mut().with_register_data = false;
-        self.emu.get_data_mut().negative_run = false;
-        self.emu.get_data_mut().deactivate_print = false;
-        self.emu.get_data_mut().trace_data.clear();
-        self.emu.get_data_mut().fault_data.clear();
+        let state = self.emu.get_data_mut();
+        state.state = RunState::Init;
+        state.start_trace = false;
+        state.with_register_data = false;
+        state.negative_run = false;
+        state.deactivate_print = false;
+        state.trace_data.clear();
+        state.fault_data.clear();
     }
 
     /// Copy trace data to caller
@@ -587,12 +642,6 @@ impl<'a> Cpu<'a> {
         let trace_data = &mut self.emu.get_data_mut().trace_data;
         let mut seen = HashSet::new();
         trace_data.retain(|trace| seen.insert(trace.clone()));
-    }
-
-    /// Execute fault injection according to fault type
-    /// Program is stopped and will be continued after fault injection
-    pub fn execute_fault_injection(&mut self, fault: &FaultRecord) -> bool {
-        fault.fault_type.execute(self, fault)
     }
 
     /// Get Program counter from internal variable
@@ -641,31 +690,12 @@ impl<'a> Cpu<'a> {
     }
 
     /// Write assembler instruction to memory. After modification the simulation cache is cleared for
-    /// the changed command to ensure written cmds are immidiately active
-    ///
+    /// the changed command to ensure written cmds are immediately active
     pub fn asm_cmd_write(&mut self, address: u64, instruction: &[u8]) -> Result<(), uc_error> {
         // Write assembler instruction to memory
         self.memory_write(address, instruction).unwrap();
         // Clear cached instruction
         self.emu
             .ctl_remove_cache(address, address + instruction.len() as u64)
-    }
-
-    /// Save the current state of the CPU.
-    pub fn save_state(&mut self) -> Result<(), uc_error> {
-        // Save current state of the CPU
-        self.emu
-            .context_save(&mut self.cpu_context)
-            .expect("failed to save context");
-        Ok(())
-    }
-
-    /// Restore the CPU state from a saved context.
-    pub fn restore_state(&mut self) -> Result<(), uc_error> {
-        // Restore CPU state
-        self.emu
-            .context_restore(&self.cpu_context)
-            .expect("failed to restore context");
-        Ok(())
     }
 }

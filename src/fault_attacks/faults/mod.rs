@@ -1,3 +1,25 @@
+//! # Fault Injection Implementations
+//!
+//! This module provides a comprehensive suite of fault injection techniques
+//! for simulating various types of hardware attacks on ARM processors.
+//! Each fault type implements specific attack vectors that can be applied
+//! during program execution to test security vulnerabilities.
+//!
+//! ## Available Fault Types
+//!
+//! * **Glitch**: Clock/voltage glitching that causes instruction skipping
+//! * **Register Bit Flip**: Single-bit errors in processor registers
+//! * **Register Flood**: Complete register value corruption
+//! * **Command Bit Flip**: Instruction corruption in memory or pipeline
+//!
+//! ## Fault Injection Framework
+//!
+//! All fault types implement the `FaultFunctions` trait, providing:
+//! * Execution logic for applying faults to CPU state
+//! * Filtering logic for identifying injection points
+//! * String parsing for configuration and scripting
+//! * Enumeration capabilities for automated testing
+
 use super::FaultRecord;
 use crate::{
     disassembly::Disassembly,
@@ -16,9 +38,16 @@ use itertools::Itertools;
 pub use register_bitflip::RegisterBitFlip;
 pub use register_flood::RegisterFlood;
 
+// Note: example.rs is intentionally excluded — it is a template file,
+// not a registered fault type.
+
 use unicorn_engine::RegisterARM;
 
-/// List of all possible faults
+/// Default fault instances for enumeration and testing.
+///
+/// Provides a representative sample of each fault type with common
+/// parameters. Used by the fault enumeration system to generate
+/// comprehensive fault injection campaigns.
 const FAULTS: [&dyn FaultFunctions; 4] = [
     &Glitch { number: 1 },
     &RegisterBitFlip {
@@ -32,48 +61,113 @@ const FAULTS: [&dyn FaultFunctions; 4] = [
     &CmdBitFlip { xor_value: 0x01 },
 ];
 
-/// Trait for fault injection functions
+/// Core trait for implementing fault injection techniques.
+///
+/// This trait defines the interface that all fault injection implementations
+/// must provide. It enables a unified approach to fault injection while
+/// allowing each fault type to implement its specific injection logic.
+///
+/// # Design Principles
+///
+/// * **Polymorphism**: All faults can be used interchangeably through this trait
+/// * **Thread Safety**: Send + Sync bounds enable parallel fault execution
+/// * **Flexibility**: Each fault type controls its own execution and filtering logic
+/// * **Discoverability**: String parsing and enumeration support automated testing
+///
+/// # Implementation Requirements
+///
+/// Implementers must provide thread-safe execution logic and be compatible
+/// with the `Arc<dyn FaultFunctions>` type system for dynamic dispatch.
 pub trait FaultFunctions: Send + Sync + Debug {
-    /// Executes the fault injection on the given CPU with the provided fault record.
+    /// Applies the fault injection to the CPU state at the specified execution point.
+    ///
+    /// This is the core method that implements the actual fault injection logic.
+    /// It may modify CPU registers, memory, or execution state depending on
+    /// the fault type. The return value indicates whether instruction repair
+    /// is needed (e.g., for instruction corruption faults).
     ///
     /// # Arguments
     ///
-    /// * `cpu` - The CPU instance.
-    /// * `fault` - The fault record.
+    /// * `cpu` - Mutable reference to the CPU emulator for state modification
+    /// * `fault` - Fault specification containing timing and parameters
     ///
     /// # Returns
     ///
-    /// * `bool` - Returns `true` if code repair is needed, otherwise `false`.
+    /// * `true` - Instruction stream was modified and may need repair
+    /// * `false` - Only CPU state was modified, no instruction repair needed
     fn execute(&self, cpu: &mut Cpu, fault: &FaultRecord) -> bool;
 
-    /// Filters the trace records based on the disassembly context.
+    /// Filters execution trace to identify suitable injection points for this fault type.
+    ///
+    /// Each fault type has different requirements for effective injection points.
+    /// This method analyzes the execution trace and removes unsuitable locations,
+    /// leaving only those where the fault is likely to be effective.
     ///
     /// # Arguments
     ///
-    /// * `records` - A mutable reference to the vector of trace records to filter.
-    /// * `cs` - The disassembly context used for filtering.
+    /// * `records` - Execution trace to filter (modified in-place)
+    /// * `cs` - Disassembly engine for instruction analysis
+    ///
+    /// # Implementation Notes
+    ///
+    /// Filters should be conservative, removing locations where:
+    /// * The fault would have no effect (e.g., unused registers)
+    /// * The fault would cause immediate crashes rather than security bypasses
+    /// * The instruction type is incompatible with the fault mechanism
     fn filter(&self, records: &mut TraceElement, cs: &Disassembly);
 
-    /// Tries to create a fault from the given input string.
+    /// Attempts to parse a fault specification from a string representation.
+    ///
+    /// Enables creation of fault instances from configuration files, command-line
+    /// arguments, and scripting interfaces. Each fault type defines its own
+    /// string format for specifying parameters.
     ///
     /// # Arguments
     ///
-    /// * `input` - The input string.
+    /// * `input` - String containing fault specification (format varies by type)
     ///
     /// # Returns
     ///
-    /// * `Option<FaultType>` - Returns the fault type if successful, otherwise `None`.
-    fn try_from(&self, input: &str) -> Option<FaultType>;
+    /// * `Some(FaultType)` - Successfully parsed fault instance
+    /// * `None` - String format not recognized or parameters invalid
+    ///
+    /// # Example Formats
+    ///
+    /// * Glitch: "glitch_2" (skip 2 instructions)
+    /// * Register: "regbf_r1_0x100" (flip bits in R1 with mask 0x100)
+    fn parse(&self, input: &str) -> Option<FaultType>;
 
-    /// Returns a list of possible/good faults.
+    /// Enumerates all possible variations of this fault type.
+    ///
+    /// Provides a list of string representations for all meaningful parameter
+    /// combinations of this fault type. Used by automated testing systems
+    /// to generate comprehensive fault injection campaigns.
     ///
     /// # Returns
     ///
-    /// * `Vec<String>` - Returns a vector of fault names.
+    /// Vector of strings, each representing a valid fault specification
+    /// that can be parsed by `parse()`. Should cover all practically
+    /// useful parameter combinations without being exhaustive.
+    ///
+    /// # Usage
+    ///
+    /// Enables "all" fault modes where the simulator tests every reasonable
+    /// fault configuration automatically.
     fn get_list(&self) -> Vec<String>;
 }
 
-/// Type definition of fault injection data type
+/// Type alias for thread-safe, dynamically-dispatched fault injection instances.
+///
+/// This type enables storing different fault implementations in collections
+/// and passing them between threads while maintaining type safety. The Arc
+/// provides shared ownership semantics needed for parallel fault execution.
+///
+/// # Usage Patterns
+///
+/// * **Collections**: `Vec<FaultType>` for fault sequences
+/// * **Threading**: Pass between worker threads safely
+/// * **Polymorphism**: Treat all fault types uniformly
+/// * **Configuration**: Store parsed fault specifications
 pub type FaultType = Arc<dyn FaultFunctions>;
 
 /// Get the fault type from a string
@@ -87,7 +181,7 @@ pub type FaultType = Arc<dyn FaultFunctions>;
 /// * `Result<FaultType, String>` - Returns the fault type if found, otherwise an error message.
 pub fn get_fault_from(input: &str) -> Result<FaultType, String> {
     // Parse the fault types
-    let result = FAULTS.iter().find_map(|fault| fault.try_from(input));
+    let result = FAULTS.iter().find_map(|fault| fault.parse(input));
     match result {
         Some(output) => Ok(output),
         None => Err(format!("Unknown fault type: {:?}", input)),
@@ -120,5 +214,115 @@ pub fn get_fault_lists(groups: &mut Iter<String>) -> Vec<Vec<String>> {
     } else {
         // Parse all fault types
         FAULTS.iter().map(|fault| fault.get_list()).collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_glitch_fault() {
+        let fault = get_fault_from("glitch_1");
+        assert!(fault.is_ok());
+        assert!(format!("{:?}", fault.unwrap()).contains("Glitch"));
+    }
+
+    #[test]
+    fn parse_glitch_large_number() {
+        let fault = get_fault_from("glitch_10");
+        assert!(fault.is_ok());
+    }
+
+    #[test]
+    fn parse_register_bitflip() {
+        let fault = get_fault_from("regbf_r0_00000001");
+        assert!(fault.is_ok());
+        assert!(format!("{:?}", fault.unwrap()).contains("BitFlip"));
+    }
+
+    #[test]
+    fn parse_register_flood() {
+        let fault = get_fault_from("regfld_r5_00000000");
+        assert!(fault.is_ok());
+        assert!(format!("{:?}", fault.unwrap()).contains("Flood"));
+    }
+
+    #[test]
+    fn parse_cmd_bitflip() {
+        let fault = get_fault_from("cmdbf_00000001");
+        assert!(fault.is_ok());
+        assert!(format!("{:?}", fault.unwrap()).contains("Command"));
+    }
+
+    #[test]
+    fn parse_unknown_fault_returns_error() {
+        let fault = get_fault_from("unknown_fault_123");
+        assert!(fault.is_err());
+    }
+
+    #[test]
+    fn parse_empty_string_returns_error() {
+        let fault = get_fault_from("");
+        assert!(fault.is_err());
+    }
+
+    #[test]
+    fn get_fault_lists_with_glitch_filter() {
+        let groups = ["glitch".to_string()];
+        let lists = get_fault_lists(&mut groups.iter());
+        assert_eq!(lists.len(), 1); // Only glitch faults
+        assert!(lists[0][0].starts_with("glitch_"));
+    }
+
+    #[test]
+    fn get_fault_lists_with_regbf_filter() {
+        let groups = ["regbf".to_string()];
+        let lists = get_fault_lists(&mut groups.iter());
+        assert_eq!(lists.len(), 1);
+        assert!(lists[0][0].starts_with("regbf_"));
+    }
+
+    #[test]
+    fn get_fault_lists_empty_returns_all() {
+        let groups: [String; 0] = [];
+        let lists = get_fault_lists(&mut groups.iter());
+        assert_eq!(lists.len(), 4); // All 4 fault types
+    }
+
+    #[test]
+    fn glitch_list_has_expected_range() {
+        let glitch = Glitch { number: 1 };
+        let list = glitch.get_list();
+        assert_eq!(list.len(), 8);
+        assert_eq!(list[0], "glitch_1");
+        assert_eq!(list[7], "glitch_8");
+    }
+
+    #[test]
+    fn register_bitflip_roundtrip() {
+        let rbf = RegisterBitFlip {
+            register: unicorn_engine::RegisterARM::R0,
+            xor_value: 0x01,
+        };
+        let parsed = rbf.parse("regbf_r0_00000001");
+        assert!(parsed.is_some());
+    }
+
+    #[test]
+    fn cmd_bitflip_roundtrip() {
+        let cbf = CmdBitFlip { xor_value: 0x01 };
+        let parsed = cbf.parse("cmdbf_00000001");
+        assert!(parsed.is_some());
+    }
+
+    #[test]
+    fn register_flood_roundtrip() {
+        let rf = RegisterFlood {
+            register: unicorn_engine::RegisterARM::R0,
+            value: 0x00,
+        };
+        let parsed = rf.parse("regfld_r0_00000000");
+        assert!(parsed.is_some());
     }
 }

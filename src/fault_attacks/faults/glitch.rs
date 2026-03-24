@@ -1,3 +1,23 @@
+//! # Clock/Voltage Glitch Fault Injection
+//!
+//! This module implements clock and voltage glitching attacks that cause
+//! the processor to skip instructions or execute incorrectly. Glitching
+//! is one of the most common fault injection techniques used in practice.
+//!
+//! ## Attack Mechanism
+//!
+//! Glitch attacks work by:
+//! * Temporarily disrupting the processor's clock signal
+//! * Causing voltage fluctuations during instruction execution
+//! * Forcing the CPU to skip or misexecute instructions
+//! * Bypassing security checks and conditional branches
+//!
+//! ## Implementation
+//!
+//! The simulator models glitch effects by advancing the program counter
+//! past one or more instructions, simulating the effect of instruction
+//! skipping that commonly occurs during real glitch attacks.
+
 use super::{Disassembly, FaultFunctions, FaultType};
 use crate::simulation::{
     cpu::Cpu,
@@ -8,14 +28,45 @@ use crate::simulation::{
 use std::fmt::Debug;
 use std::sync::Arc;
 
+/// ARM Thumb-2 NOP instruction sequence for instruction padding.
+///
+/// Used to replace skipped instructions with NOPs to maintain
+/// proper instruction alignment and prevent execution corruption.
 const T1_NOP: [u8; 4] = [0x00, 0xBF, 0x00, 0xBF];
 
-/// Glitch fault structure
-/// number  Number of assembler instructions to advance program counter to simulate
-///         glitching on internal cpu state machine
+/// Clock/voltage glitch fault that causes instruction skipping.
 ///
+/// This fault type simulates the effects of clock or voltage glitching
+/// attacks by advancing the program counter past a specified number of
+/// instructions. This models the most common outcome of real glitch
+/// attacks where the processor skips over security checks or conditional
+/// branches.
+///
+/// # Attack Effectiveness
+///
+/// Glitch attacks are particularly effective against:
+/// * Conditional branches (if statements, loops)
+/// * Security checks and validation routines
+/// * Critical state machine transitions
+/// * Authentication and authorization logic
+///
+/// # Parameters
+///
+/// * `number` - Number of instructions to skip (typically 1-10)
+///
+/// # Real-World Correlation
+///
+/// This simulation correlates with physical attacks where glitches
+/// cause instruction fetch failures, pipeline stalls, or decode errors
+/// that result in effective instruction skipping.
 #[derive(Clone, Copy)]
 pub struct Glitch {
+    /// Number of instructions to skip when the glitch is applied.
+    ///
+    /// Common values:
+    /// * 1: Skip single instruction (most common)
+    /// * 2-3: Skip short instruction sequences
+    /// * 4+: Skip larger code blocks (less realistic)
     pub number: usize,
 }
 
@@ -27,15 +78,20 @@ impl Debug for Glitch {
 
 /// Implementation for Glitch fault
 impl Glitch {
-    /// Create a new Glitch fault
+    /// Creates a new glitch fault instance with specified instruction skip count.
+    ///
+    /// The instruction skip count determines how many instructions will be
+    /// bypassed when the glitch is applied. Higher counts simulate more
+    /// severe glitch effects but may be less realistic for actual attacks.
     ///
     /// # Arguments
     ///
-    /// * `number` - The number of assembler instructions to advance the program counter.
+    /// * `number` - Number of instructions to skip (1-10 recommended for realism)
     ///
     /// # Returns
     ///
-    /// * `Arc<Self>` - Returns an `Arc` containing the `Glitch` instance.
+    /// Thread-safe Arc reference to the glitch fault instance, suitable
+    /// for use in multi-threaded fault injection campaigns.
     pub fn new(number: usize) -> Arc<Self> {
         Arc::new(Self { number })
     }
@@ -109,7 +165,7 @@ impl FaultFunctions for Glitch {
     /// # Returns
     ///
     /// * `Option<FaultType>` - Returns the fault type if successful, otherwise `None`.
-    fn try_from(&self, input: &str) -> Option<FaultType> {
+    fn parse(&self, input: &str) -> Option<FaultType> {
         // divide name from attribute
         let collect: Vec<&str> = input.split('_').collect();
         // check if name and attribute are present
