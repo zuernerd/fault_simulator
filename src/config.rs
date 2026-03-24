@@ -24,6 +24,8 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use unicorn_engine::RegisterARM;
 
+use crate::error::SimulatorError;
+
 /// Parse hexadecimal address strings to u64 values with flexible format support.format support.
 ///
 /// This function provides robust parsing of memory addresses from various
@@ -234,11 +236,12 @@ impl Config {
     }
 
     /// Load configuration from JSON5 file
-    pub fn from_file(path: &PathBuf) -> Result<Self, String> {
+    pub fn from_file(path: &PathBuf) -> Result<Self, SimulatorError> {
         let content = std::fs::read_to_string(path)
-            .map_err(|e| format!("Failed to read config file: {}", e))?;
+            .map_err(|e| SimulatorError::Config(format!("Failed to read config file: {}", e)))?;
 
-        json5::from_str(&content).map_err(|e| format!("Failed to parse JSON5 config: {}", e))
+        json5::from_str(&content)
+            .map_err(|e| SimulatorError::Config(format!("Failed to parse JSON5 config: {}", e)))
     }
 
     /// Create Config from command line arguments.
@@ -272,7 +275,7 @@ impl Config {
             initial_registers: HashMap::new(),
             code_patches: Vec::new(),
             memory_regions: Vec::new(),
-            log_level: "info".to_string(),
+            log_level: "off".to_string(),
         }
     }
 

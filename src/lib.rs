@@ -22,6 +22,7 @@
 pub mod config;
 pub mod disassembly;
 pub mod elf_file;
+pub mod error;
 pub mod fault_attack_thread;
 pub mod fault_attacks;
 pub mod simulation;
@@ -43,6 +44,7 @@ pub mod simulation_thread;
 pub mod prelude {
     pub use crate::config::{CodePatch, Config, MemoryRegion};
     pub use crate::elf_file::*;
+    pub use crate::error::SimulatorError;
     pub use crate::fault_attack_thread::FaultAttackThread;
     pub use crate::fault_attacks::{faults::*, FaultAttacks};
     pub use crate::simulation::record::TraceRecord;

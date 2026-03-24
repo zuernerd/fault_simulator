@@ -12,4 +12,5 @@
         LR: "0x08000005",  // Link register
         PC: "0x08000644",  // Program counter
     },
+    log_level: "info",
 }

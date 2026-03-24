@@ -24,6 +24,7 @@ use std::vec;
 
 //use crate::disassembly::Disassembly;
 use crate::elf_file::ElfFile;
+use crate::error::SimulatorError;
 use crate::simulation::{FaultElement, TraceElement};
 //use crate::prelude::FaultType;
 
@@ -254,7 +255,7 @@ impl SimulationThread {
     /// Creates unbounded channels for:
     /// - Distributing `WorkloadMessage` to worker threads
     /// - Shared workload counter for synchronizing completion
-    pub fn new(config: SimulationConfig) -> Result<Self, String> {
+    pub fn new(config: SimulationConfig) -> Result<Self, SimulatorError> {
         // Create a channel for sending lines to threads
         let (workload_sender, workload_receiver): (
             Sender<WorkloadMessage>,
@@ -273,7 +274,7 @@ impl SimulationThread {
         config: SimulationConfig,
         file_data: &ElfFile,
         number_of_threads: usize,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, SimulatorError> {
         let mut sim_thread = Self::new(config)?;
         sim_thread.start_worker_threads(file_data, number_of_threads)?;
         Ok(sim_thread)
@@ -302,15 +303,15 @@ impl SimulationThread {
         success_addresses: Vec<u64>,
         failure_addresses: Vec<u64>,
         initial_registers: std::collections::HashMap<unicorn_engine::RegisterARM, u64>,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, SimulatorError> {
         let config = SimulationConfig::new(
             cycles,
             deep_analysis,
             success_addresses,
             failure_addresses,
             initial_registers,
-            Vec::new(),         // No memory regions in this test
-            "info".to_string(), // Default verbose level
+            Vec::new(),        // No memory regions in this test
+            "off".to_string(), // Default verbose level
         );
         Self::new(config)
     }
@@ -361,10 +362,12 @@ impl SimulationThread {
         &mut self,
         file_data: &ElfFile,
         number_of_threads: usize,
-    ) -> Result<(), String> {
+    ) -> Result<(), SimulatorError> {
         // Check that number of threads is greater than 0
         if number_of_threads == 0 {
-            return Err("Number of threads must be greater than 0".to_string());
+            return Err(SimulatorError::Thread(
+                "Number of threads must be greater than 0".to_string(),
+            ));
         }
 
         // Create a vector to hold the thread handles
@@ -485,7 +488,7 @@ impl SimulationThread {
         fault_records: Vec<FaultRecord>,
         trace_sender: Option<Sender<TraceElement>>,
         fault_sender: Option<Sender<FaultElement>>,
-    ) -> Result<(), String> {
+    ) -> Result<(), SimulatorError> {
         if let Some(sender) = &self.workload_sender {
             let msg = WorkloadMessage {
                 run_type,
@@ -496,9 +499,11 @@ impl SimulationThread {
             };
             sender
                 .send(msg)
-                .map_err(|e| format!("Failed to send workload: {}", e))
+                .map_err(|e| SimulatorError::Channel(format!("Failed to send workload: {}", e)))
         } else {
-            Err("Workload sender channel is closed".to_string())
+            Err(SimulatorError::Channel(
+                "Workload sender channel is closed".to_string(),
+            ))
         }
     }
 
@@ -523,7 +528,7 @@ impl SimulationThread {
         run_type: RunType,
         deep_analysis: bool,
         fault_records: Vec<FaultRecord>,
-    ) -> Result<TraceElement, String> {
+    ) -> Result<TraceElement, SimulatorError> {
         let (trace_sender, trace_receiver) = unbounded();
         self.send_workload(
             run_type,
@@ -534,7 +539,7 @@ impl SimulationThread {
         )?;
         trace_receiver
             .recv()
-            .map_err(|e| format!("Unable to receive trace data: {}", e))
+            .map_err(|e| SimulatorError::Channel(format!("Unable to receive trace data: {}", e)))
     }
 }
 
@@ -562,7 +567,7 @@ impl Drop for SimulationThread {
         if let Some(handles) = self.handles.take() {
             for handle in handles {
                 if let Err(e) = handle.join() {
-                    eprintln!("A thread panicked: {:?}", e);
+                    log::error!("A simulation worker thread panicked: {:?}", e);
                 }
             }
         }
