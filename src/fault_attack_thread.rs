@@ -255,7 +255,7 @@ impl FaultAttackThread {
         for _ in 0..n_workload {
             match self
                 .result_receiver
-                .recv_timeout(Duration::from_millis(5000))
+                .recv_timeout(Duration::from_millis(60000))
             {
                 Ok((data, n)) => {
                     total_count += n;
@@ -383,7 +383,7 @@ fn fault_simulation(
     let mut data = Vec::new();
     // Collect results from worker threads
     for _ in 0..n {
-        match fault_response_receiver.recv_timeout(Duration::from_millis(10000)) {
+        match fault_response_receiver.recv_timeout(Duration::from_millis(60000)) {
             Ok(faults) => {
                 if !faults.is_empty() {
                     data.push(faults);
