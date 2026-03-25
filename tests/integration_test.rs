@@ -100,7 +100,10 @@ fn run_single_glitch() {
 /// This test runs a double glitch attacks on two different binaries (victim_3.elf, victim_4.elf)
 /// and checks if faults are found with the correct number of attack iterations
 fn run_double_glitch() {
-    let cpu_cores = get_cpu_cores();
+    // Use fixed thread count for deterministic results across machines.
+    // Early stopping in double() depends on chunk size (= thread count),
+    // so different core counts would produce different accumulated counts.
+    let fixed_threads = 4;
     // Load victim data for attack simulation
     let file_data: ElfFile =
         ElfFile::new(std::path::PathBuf::from("tests/bin/victim_3.elf")).unwrap();
@@ -116,13 +119,13 @@ fn run_double_glitch() {
                 "info".to_string(),
             ),
             &file_data,
-            cpu_cores,
+            fixed_threads,
         )
         .unwrap(),
     );
 
     let mut attack =
-        FaultAttacks::new_with_threads(&file_data, user_thread.clone(), cpu_cores).unwrap();
+        FaultAttacks::new_with_threads(&file_data, user_thread.clone(), fixed_threads).unwrap();
     // Result is (false: bool, number_of_attacks: usize)
     let vec = ["glitch".to_string()];
     let results = attack.double(&vec, false).unwrap();
@@ -132,7 +135,7 @@ fn run_double_glitch() {
     // Result is (success: bool, number_of_attacks: usize)
     let vec = ["regbf".to_string()];
     let results = attack.double(&vec, false).unwrap();
-    assert_eq!((true, 34192), results);
+    assert_eq!((true, 34156), results);
 }
 
 #[test]
