@@ -208,14 +208,17 @@ impl FaultAttackThread {
     ///
     /// * `Ok(())` - Workload successfully sent to worker threads.
     /// * `Err(String)` - Error if sending fails or channel is closed.
-    pub fn send_fault_attack_workload(&self, fault_sequence: &[FaultType]) -> Result<(), SimulatorError> {
+    pub fn send_fault_attack_workload(
+        &self,
+        fault_sequence: &[FaultType],
+    ) -> Result<(), SimulatorError> {
         if let Some(sender) = &self.workload_sender {
             let workload = FaultAttackWorkload {
                 fault_sequence: fault_sequence.to_vec(),
             };
-            sender
-                .send(workload)
-                .map_err(|e| SimulatorError::Channel(format!("Failed to send fault attack workload: {}", e)))
+            sender.send(workload).map_err(|e| {
+                SimulatorError::Channel(format!("Failed to send fault attack workload: {}", e))
+            })
         } else {
             Err(SimulatorError::Channel(
                 "Fault attack workload sender channel is closed".to_string(),
@@ -365,7 +368,9 @@ fn fault_simulation(
                     &user_thread,
                 )?;
             } else {
-                return Err(SimulatorError::Simulation("No instruction record found".to_string()));
+                return Err(SimulatorError::Simulation(
+                    "No instruction record found".to_string(),
+                ));
             }
 
             Ok(number)
@@ -499,7 +504,9 @@ fn fault_simulation_inner(
 ///
 /// * `Ok(TraceElement)` - Initial execution trace records without faults.
 /// * `Err(String)` - Error message if trace recording fails or times out.
-fn get_initial_trace_data(user_thread: Arc<SimulationThread>) -> Result<TraceElement, SimulatorError> {
+fn get_initial_trace_data(
+    user_thread: Arc<SimulationThread>,
+) -> Result<TraceElement, SimulatorError> {
     user_thread.get_trace(
         RunType::RecordTrace,
         user_thread.config.deep_analysis,

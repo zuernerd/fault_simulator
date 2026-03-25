@@ -115,7 +115,9 @@ impl ElfFile {
                 (Some(shdrs), Some(strtab)) => (shdrs, strtab),
                 _ => {
                     // If we don't have shdrs, or don't have a strtab, we can't find a section by its name
-                    return Err(SimulatorError::Elf("Missing strtab or section headers".to_string()));
+                    return Err(SimulatorError::Elf(
+                        "Missing strtab or section headers".to_string(),
+                    ));
                 }
             };
 
@@ -184,7 +186,10 @@ impl ElfFile {
     }
 
     /// Apply patches to the program data
-    pub fn apply_patches(&mut self, patches: &[crate::config::CodePatch]) -> Result<(), SimulatorError> {
+    pub fn apply_patches(
+        &mut self,
+        patches: &[crate::config::CodePatch],
+    ) -> Result<(), SimulatorError> {
         if patches.is_empty() {
             return Ok(());
         }
@@ -194,10 +199,9 @@ impl ElfFile {
         for patch in patches {
             // Resolve address from symbol if needed, otherwise use direct address
             let address = if let Some(sym_name) = &patch.symbol {
-                let symbol = self
-                    .symbol_map
-                    .get(sym_name)
-                    .ok_or_else(|| SimulatorError::Elf(format!("Symbol '{}' not found in ELF file", sym_name)))?;
+                let symbol = self.symbol_map.get(sym_name).ok_or_else(|| {
+                    SimulatorError::Elf(format!("Symbol '{}' not found in ELF file", sym_name))
+                })?;
 
                 // Clear LSB for Thumb mode indicator - actual code is at even address
                 let mut actual_address = symbol.st_value & !1;
@@ -222,7 +226,9 @@ impl ElfFile {
             } else if let Some(addr) = patch.address {
                 addr
             } else {
-                return Err(SimulatorError::Elf("Code patch must specify either 'address' or 'symbol'".to_string()));
+                return Err(SimulatorError::Elf(
+                    "Code patch must specify either 'address' or 'symbol'".to_string(),
+                ));
             };
 
             log::debug!(
