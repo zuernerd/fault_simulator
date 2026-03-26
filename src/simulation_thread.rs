@@ -384,8 +384,17 @@ impl SimulationThread {
             let cycles = self.config.cycles;
             let handle = spawn(move || {
                 // Wait for workload
-                // Create a new simulation instance
+                // Create simulation instance for Run mode (reused across all runs)
                 let mut simulation = Control::new(
+                    &file,
+                    false,
+                    success_addrs.clone(),
+                    failure_addrs.clone(),
+                    init_regs.clone(),
+                    &mem_regions,
+                );
+                // Create a separate simulation instance for trace recordings (reused)
+                let mut trace_simulation = Control::new(
                     &file,
                     false,
                     success_addrs.clone(),
@@ -405,15 +414,7 @@ impl SimulationThread {
 
                     match run_type {
                         RunType::RecordFullTrace | RunType::RecordTrace => {
-                            let result = Control::new(
-                                &file,
-                                false,
-                                success_addrs.clone(),
-                                failure_addrs.clone(),
-                                init_regs.clone(),
-                                &mem_regions,
-                            )
-                            .run_with_faults(
+                            let result = trace_simulation.run_with_faults(
                                 cycles,
                                 run_type,
                                 deep_analysis,

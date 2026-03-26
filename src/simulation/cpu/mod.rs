@@ -109,6 +109,8 @@ pub struct Cpu<'a> {
     #[allow(dead_code)]
     cpu_context: Context,
     initial_registers: HashMap<RegisterARM, u64>,
+    /// Handle for the trace code hook, if registered.
+    trace_hook: Option<unicorn_engine::UcHookId>,
 }
 
 struct CpuState<'a> {
@@ -171,6 +173,7 @@ impl<'a> Cpu<'a> {
             program_counter: 0,
             cpu_context,
             initial_registers,
+            trace_hook: None,
         }
     }
 
@@ -223,6 +226,22 @@ impl<'a> Cpu<'a> {
                 .mem_write(part.0.p_vaddr, &part.1)
                 .expect("failed to write program data");
         }
+    }
+
+    /// Zero all segment memory (full p_memsz including BSS) and AUTH_BASE,
+    /// then flush the translation block cache.
+    /// Called before load_code() when a clean memory state is needed.
+    pub fn clear_segment_memory(&mut self) {
+        let program_parts = &self.emu.get_data().file_data.program_data;
+        for part in program_parts {
+            let size = part.0.p_memsz as usize;
+            let zero_buf = vec![0u8; size];
+            let _ = self.emu.mem_write(part.0.p_vaddr, &zero_buf);
+        }
+        // Clear AUTH_BASE state
+        let _ = self.emu.mem_write(AUTH_BASE, &[0u8; 4]);
+        // Flush all JIT translation blocks so stale code isn't executed
+        let _ = self.emu.ctl_flush_tb();
     }
 
     /// Function to deactivate printf of c program to
@@ -587,16 +606,21 @@ impl<'a> Cpu<'a> {
         &mut self.emu.get_data_mut().fault_data
     }
 
-    /// Set code hook for tracing
+    /// Set code hook for tracing (idempotent — only registers the hook once)
     pub fn set_trace_hook(&mut self) {
+        if self.trace_hook.is_some() {
+            return;
+        }
         // TODO: go through all program data parts
-        self.emu
+        let hook_id = self
+            .emu
             .add_code_hook(
                 self.emu.get_data().file_data.program_data[0].0.p_paddr,
                 self.emu.get_data().file_data.program_data[0].0.p_memsz,
                 hook_code_callback,
             )
             .expect("failed to setup trace hook");
+        self.trace_hook = Some(hook_id);
     }
 
     /// Starts tracing the CPU execution.
