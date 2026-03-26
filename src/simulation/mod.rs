@@ -158,7 +158,7 @@ impl<'a> Control<'a> {
     /// * `RunState` - Returns the state of the program after running.
     fn run(&mut self, cycles: usize, run_successful: bool) -> RunState {
         // Initial and load program
-        self.init(run_successful);
+        self.init(run_successful, false);
         // Start execution with the given amount of instructions
         let ret_info = self.emu.run_steps(cycles, false);
 
@@ -168,9 +168,15 @@ impl<'a> Control<'a> {
     }
 
     /// Initialize cpu state and load the program code into the cpu
-    /// and set the initial state
-    fn init(&mut self, run_successful: bool) {
+    /// and set the initial state.
+    /// When `clean_memory` is true, all segment memory is zeroed before
+    /// loading code to ensure a pristine state (needed for trace recordings).
+    fn init(&mut self, run_successful: bool, clean_memory: bool) {
         self.emu.init_register();
+        // Zero memory for clean state when required (trace recordings)
+        if clean_memory {
+            self.emu.clear_segment_memory();
+        }
         // Write code to memory area
         self.emu.load_code();
         // Set initial state
@@ -237,8 +243,9 @@ impl<'a> Control<'a> {
         faults: &[FaultRecord],
     ) -> Result<Data, SimulatorError> {
         let mut restore_required = false;
-        // Initialize and load
-        self.init(false);
+        // Initialize and load — use clean memory for trace recordings
+        let clean_memory = matches!(run_type, RunType::RecordTrace | RunType::RecordFullTrace);
+        self.init(false, clean_memory);
         // Deactivate io print
         self.emu.deactivate_printf_function();
 

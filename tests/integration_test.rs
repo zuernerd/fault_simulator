@@ -446,3 +446,21 @@ fn test_code_patch_symbol() {
     // Should run without Unicorn error (function patched successfully)
     cmd.assert().success();
 }
+
+#[test]
+/// Test code running victim_5.elf with all tests
+///
+/// This test verifies that victim_5.elf can run successfully with the victim_5.elf binary,
+/// which contains all the test scenarios (glitch, regbf, memory access, code patching).
+/// It checks that all tests are executed without errors. And the output contains the
+/// expected summary of executed tests.
+fn test_code_victim_5_full_run() {
+    let mut cmd = Command::cargo_bin("fault_simulator").unwrap();
+
+    cmd.args(["--elf", "tests/bin/victim_5.elf", "--no-check"]);
+
+    // Should run without Unicorn error and execute all tests (711064 total iterations)
+    cmd.assert()
+        .stdout(predicate::str::contains("Overall tests executed 711064"))
+        .success();
+}

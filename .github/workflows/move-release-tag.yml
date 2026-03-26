@@ -1,0 +1,48 @@
+name: Move Release Tag to Latest Commit
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  move-release-tag:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Delete existing Release 2.0
+        run: gh release delete v2.0.0 --yes --repo "$GITHUB_REPOSITORY" || true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Delete existing v2.0.0 tag
+        run: git push origin :refs/tags/v2.0.0 || true
+
+      - name: Create new v2.0.0 tag on latest master commit
+        run: |
+          LATEST_SHA=$(git rev-parse HEAD)
+          echo "Creating tag v2.0.0 on commit $LATEST_SHA"
+          git tag -a v2.0.0 "$LATEST_SHA" -m "Release 2.0"
+          git push origin v2.0.0
+
+      - name: Create new Release 2.0
+        run: |
+          gh release create v2.0.0 \
+            --title "Release 2.0" \
+            --notes "## What's Changed
+
+Full rework of thread handling. Threads for attack and simulation to utilize maximum CPU usage." \
+            --repo "$GITHUB_REPOSITORY"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
