@@ -317,7 +317,7 @@ impl SimulationThread {
             initial_registers,
             Vec::new(),        // No memory regions in this test
             "off".to_string(), // Default verbose level
-            None,               // No result checks
+            None,              // No result checks
         );
         Self::new(config)
     }
